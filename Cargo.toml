@@ -1,5 +1,6 @@
 [package]
 name = "etagere"
+description = "A dynamic texture atlas allocator using the shelf packing algorithm."
 version = "0.1.0"
 authors = ["Nicolas Silva <nical@fastmail.com>"]
 edition = "2018"
