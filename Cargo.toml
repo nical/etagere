@@ -4,6 +4,7 @@ description = "A dynamic texture atlas allocator using the shelf packing algorit
 version = "0.1.0"
 authors = ["Nicolas Silva <nical@fastmail.com>"]
 edition = "2018"
+license = "MIT/Apache-2.0"
 
 [dependencies]
 euclid = "0.22"
