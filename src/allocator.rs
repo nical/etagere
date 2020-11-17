@@ -1,23 +1,7 @@
 use std::num::Wrapping;
 use std::u16;
 
-use crate::{Size, Rectangle, point2, size2};
-
-/// ID referring to an allocated rectangle.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct AllocId(pub(crate) u32);
-
-impl AllocId {
-    pub fn serialize(&self) -> u32 {
-        self.0
-    }
-
-    pub fn deserialize(bytes: u32) -> Self {
-        AllocId(bytes)
-    }
-}
+use crate::{AllocatorOptions, DEFAULT_OPTIONS, Allocation, AllocId, Size, Rectangle, point2, size2};
 
 const BIN_BITS: u32 = 12;
 const ITEM_BITS: u32 = 12;
@@ -43,6 +27,7 @@ impl BinIndex {
     const INVALID: Self = BinIndex(u16::MAX);
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 struct Shelf {
     y: u16,
@@ -52,6 +37,7 @@ struct Shelf {
     first_bin: BinIndex,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 struct Bin {
     x: u16,
@@ -69,39 +55,6 @@ struct Bin {
     generation: Wrapping<u8>,
 }
 
-/// Options to tweak the behavior of the atlas allocator.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct AllocatorOptions {
-    /// Align item sizes to a multiple of this alignment.
-    ///
-    /// Default value: [1, 1] (no alignment).
-    pub alignment: Size,
-    /// Use vertical instead of horizontal shelves.
-    ///
-    /// Default value: false.
-    pub vertical_shelves: bool,
-}
-
-pub const DEFAULT_OPTIONS: AllocatorOptions = AllocatorOptions {
-    vertical_shelves: false,
-    alignment: size2(1, 1),
-};
-
-impl Default for AllocatorOptions {
-    fn default() -> Self {
-        DEFAULT_OPTIONS
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct Allocation {
-    pub id: AllocId,
-    pub rectangle: Rectangle,
-}
-
 /// A Shelf-packing dynamic texture atlas allocator, inspired by https://github.com/mapbox/shelf-pack/
 ///
 /// Items are accumulated into bins which are laid out in rows (shelves) of variable height.
@@ -113,7 +66,8 @@ pub struct Allocation {
 /// When the top-most shelf is empty, it is removed, potentially cascading into garbage-collecting the next
 /// shelf, etc.
 ///
-/// This allocator works well when there are a lot of items with similar sizes (typically, glyph atlases) 
+/// This allocator works well when there are a lot of small items with similar sizes (typically, glyph atlases).
+#[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub struct AtlasAllocator {
     shelves: Vec<Shelf>,
