@@ -30,6 +30,7 @@ impl BinIndex {
 #[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 struct Shelf {
+    x: u16,
     y: u16,
     height: u16,
     bin_width: u16,
@@ -78,6 +79,9 @@ pub struct AtlasAllocator {
     first_unallocated_bin: BinIndex,
     flip_xy: bool,
     alignment: Size,
+    current_column: u16,
+    column_width: u16,
+    num_columns: u16,
 }
 
 impl AtlasAllocator {
@@ -86,11 +90,14 @@ impl AtlasAllocator {
         assert!(size.width < u16::MAX as i32);
         assert!(size.height < u16::MAX as i32);
 
-        let (width, height) = if options.vertical_shelves {
-            (size.height as u16, size.width as u16)
+        let (width, height, shelf_alignment) = if options.vertical_shelves {
+            (size.height as u16, size.width as u16, options.alignment.height as u16)
         } else {
-            (size.width as u16, size.height as u16)
+            (size.width as u16, size.height as u16, options.alignment.width as u16)
         };
+
+        let mut column_width = width / (options.num_columns as u16);
+        column_width = column_width - column_width % shelf_alignment;
 
         AtlasAllocator {
             shelves: Vec::new(),
@@ -101,6 +108,9 @@ impl AtlasAllocator {
             first_unallocated_bin: BinIndex::INVALID,
             flip_xy: options.vertical_shelves,
             alignment: options.alignment,
+            current_column: 0,
+            num_columns: options.num_columns as u16,
+            column_width,
         }
     }
 
@@ -116,7 +126,8 @@ impl AtlasAllocator {
     }
 
     pub fn size(&self) -> Size {
-        size2(self.width as i32, self.height as i32)
+        let (w, h) = convert_coordinates(self.flip_xy, self.width, self.height);
+        size2(w as i32, h as i32)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -132,7 +143,7 @@ impl AtlasAllocator {
         adjust_size(self.alignment.width, &mut requested_size.width);
         adjust_size(self.alignment.height, &mut requested_size.height);
 
-        if requested_size.width > self.width as i32 || requested_size.height > self.height as i32 {
+        if requested_size.width > self.column_width as i32 || requested_size.height > self.height as i32 {
             return None;
         }
 
@@ -142,7 +153,7 @@ impl AtlasAllocator {
         let mut selected_bin = BinIndex::INVALID;
         let mut best_waste = u16::MAX;
 
-        let can_add_shelf = self.available_height >= h
+        let can_add_shelf = (self.available_height >= h || self.current_column + 1 < self.num_columns)
             && self.shelves.len() < MAX_SHELF_COUNT
             && self.bins.len() < MAX_BIN_COUNT;
 
@@ -241,16 +252,33 @@ impl AtlasAllocator {
     }
 
     fn add_shelf(&mut self, width: u16, height: u16) -> usize {
+
+        let can_add_column = self.current_column + 1 < self.num_columns;
+
+        if self.available_height != 0 && self.available_height < height && can_add_column {
+            // We have room to add a shelf in a new column but current one doesn't have
+            // enough available space. First add a shelf to fill the current column's
+            // remaining height.
+            self.add_shelf(0, self.available_height);
+            debug_assert_eq!(self.available_height, 0);
+        }
+
+        if self.available_height == 0 && can_add_column {
+            self.current_column += 1;
+            self.available_height = self.height;
+        }
+
         let height = shelf_height(height).min(self.available_height);
         let num_bins = self.num_bins(width, height);
-        let bin_width = self.height / num_bins;
+        let mut bin_width = self.column_width / num_bins;
+        bin_width = bin_width - (bin_width % self.alignment.width as u16); // TODO
         let y = self.height - self.available_height;
         self.available_height -= height;
 
         let shelf_index = self.shelves.len();
 
         // Initialize the bins for our new shelf.
-        let mut x = 0;
+        let mut x = self.current_column * self.column_width;
         let mut bin_next = BinIndex::INVALID;
         for _ in 0..num_bins {
             let mut bin = Bin {
@@ -281,6 +309,7 @@ impl AtlasAllocator {
         }
 
         self.shelves.push(Shelf {
+            x: self.current_column * self.column_width,
             y,
             height,
             bin_width,
@@ -310,9 +339,14 @@ impl AtlasAllocator {
             if !self.shelf_is_empty(shelf_index) {
                 continue;
             }
-
+            let shelf_x = self.shelves[shelf_index].x;
             coalesced_height = self.shelves[shelf_index].height;
             for i in 1..3 {
+                if self.shelves[shelf_index + i].x != shelf_x {
+                    // Can't coalesce shelves from different columns.
+                    continue 'outer;
+                }
+
                 if shelf_index + i >= len {
                     break 'outer;
                 }
@@ -346,7 +380,7 @@ impl AtlasAllocator {
     }
 
     fn num_bins(&self, width: u16, height: u16) -> u16 {
-        match self.width / u16::max(width, height) {
+        match self.column_width / u16::max(width, height) {
             0 ..= 4 => 1,
             5 ..= 15 => 2,
             16 ..= 64 => 4,
@@ -407,8 +441,14 @@ impl AtlasAllocator {
                 self.bins[last_bin.to_usize()].next = self.first_unallocated_bin;
                 self.first_unallocated_bin = shelf.first_bin;
 
-                // Reclaim the height of the bin. 
-                self.available_height += shelf.height;
+                if shelf.y == 0 && self.current_column > 0 {
+                    self.current_column -= 1;
+                    let prev_shelf = &self.shelves[self.shelves.len() - 2];
+                    self.available_height = self.height - (prev_shelf.y + prev_shelf.height);
+                } else {
+                    // Reclaim the height of the bin.
+                    self.available_height += shelf.height;
+                }
             }
 
             self.shelves.pop();
@@ -507,30 +547,38 @@ pub fn dump_into_svg(atlas: &AtlasAllocator, rect: Option<&Rectangle>, output: &
     for shelf in &atlas.shelves {
         let mut bin_index = shelf.first_bin;
 
-        let y = shelf.y as f32 * sy + ty;
+        let y = shelf.y as f32 * sy;
         let h = shelf.height as f32 * sy;
         while bin_index != BinIndex::INVALID {
             let bin = &atlas.bins[bin_index.to_usize()];
 
-            let x = bin.x as f32 * sx + tx;
+            let x = bin.x as f32 * sx;
             let w = (shelf.bin_width - bin.free_space) as f32 * sx;
 
-            writeln!(
-                output,
-                r#"    {}"#,
-                rectangle(x, y, w, h)
-                    .fill(rgb(70, 70, 180))
-                    .stroke(Stroke::Color(black(), 1.0))
-            )?;
+            {
+                let (x, y) = if atlas.flip_xy { (y, x) } else { (x, y) };
+                let (w, h) = if atlas.flip_xy { (h, w) } else { (w, h) };
+
+                writeln!(
+                    output,
+                    r#"    {}"#,
+                    rectangle(x + tx, y + ty, w, h)
+                        .fill(rgb(70, 70, 180))
+                        .stroke(Stroke::Color(black(), 1.0))
+                )?;
+            }
 
             if bin.free_space > 0 {
                 let x_free = x + w;
                 let w_free = bin.free_space as f32 * sx;
 
+                let (x_free, y) = if atlas.flip_xy { (y, x_free) } else { (x_free, y) };
+                let (w_free, h) = if atlas.flip_xy { (h, w_free) } else { (w_free, h) };
+
                 writeln!(
                     output,
                     r#"    {}"#,
-                    rectangle(x_free, y, w_free, h)
+                    rectangle(x_free + tx, y + ty, w_free, h)
                         .fill(rgb(50, 50, 50))
                         .stroke(Stroke::Color(black(), 1.0))
                 )?;
@@ -634,6 +682,80 @@ fn test_coalesce_shelves() {
     }
 
     //dump_svg(&atlas, &mut std::fs::File::create("tmp.svg").expect("!!"));
+
+    assert!(atlas.is_empty());
+}
+
+#[test]
+fn columns() {
+    let mut atlas = AtlasAllocator::with_options(size2(64, 64), &AllocatorOptions {
+        num_columns: 2,
+        ..DEFAULT_OPTIONS
+    });
+
+    let a = atlas.allocate(size2(24, 46)).unwrap();
+    let b = atlas.allocate(size2(24, 32)).unwrap();
+    let c = atlas.allocate(size2(24, 32)).unwrap();
+
+    fn in_range(val: i32, range: std::ops::Range<i32>) -> bool {
+        let ok = val >= range.start && val < range.end;
+
+        if !ok {
+            println!("{:?} not in {:?}", val, range);
+        }
+
+        ok
+    }
+
+    assert!(in_range(a.rectangle.min.x, 0..32));
+    assert!(in_range(a.rectangle.max.x, 0..32));
+    assert!(in_range(b.rectangle.min.x, 32..64));
+    assert!(in_range(b.rectangle.max.x, 32..64));
+    assert!(in_range(c.rectangle.min.x, 32..64));
+    assert!(in_range(c.rectangle.max.x, 32..64));
+
+    atlas.deallocate(b.id);
+    atlas.deallocate(c.id);
+    atlas.deallocate(a.id);
+
+    assert!(atlas.is_empty());
+
+
+    let a = atlas.allocate(size2(24, 46)).unwrap();
+    let b = atlas.allocate(size2(24, 32)).unwrap();
+    let c = atlas.allocate(size2(24, 32)).unwrap();
+    let d = atlas.allocate(size2(24, 8)).unwrap();
+
+    assert_eq!(a.rectangle.min.x, 0);
+    assert_eq!(b.rectangle.min.x, 32);
+    assert_eq!(c.rectangle.min.x, 32);
+    assert_eq!(d.rectangle.min.x, 0);
+}
+
+#[test]
+fn vertical() {
+    let mut atlas = AtlasAllocator::with_options(size2(128, 256), &AllocatorOptions {
+        num_columns: 2,
+        vertical_shelves: true,
+        ..DEFAULT_OPTIONS
+    });
+
+    assert_eq!(atlas.size(), size2(128, 256));
+
+    let a = atlas.allocate(size2(32, 16)).unwrap();
+    let b = atlas.allocate(size2(16, 32)).unwrap();
+
+    assert!(a.rectangle.size().width >= 32);
+    assert!(a.rectangle.size().height >= 16);
+
+    assert!(b.rectangle.size().width >= 16);
+    assert!(b.rectangle.size().height >= 32);
+
+    let c = atlas.allocate(size2(128, 128)).unwrap();
+
+    atlas.deallocate(a.id);
+    atlas.deallocate(b.id);
+    atlas.deallocate(c.id);
 
     assert!(atlas.is_empty());
 }

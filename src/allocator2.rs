@@ -1,4 +1,4 @@
-use crate::{AllocId, Allocation, AllocatorOptions, DEFAULT_OPTIONS, Size, Rectangle, point2};
+use crate::{AllocId, Allocation, AllocatorOptions, DEFAULT_OPTIONS, Size, Rectangle, point2, size2};
 
 const SHELF_SPLIT_THRESHOLD: u16 = 8;
 const ITEM_SPLIT_THRESHOLD: u16 = 8;
@@ -78,18 +78,18 @@ pub struct AtlasAllocator {
 impl AtlasAllocator {
     /// Create an atlas allocator with provided options.
     pub fn with_options(size: Size, options: &AllocatorOptions) -> Self {
-        let (shelf_alignment, total_size) = if options.vertical_shelves {
-            (options.alignment.height, size.height)
+        let (shelf_alignment, width, height) = if options.vertical_shelves {
+            (options.alignment.height, size.height, size.width)
         } else {
-            (options.alignment.width, size.width)
+            (options.alignment.width, size.width, size.height)
         };
-        let mut shelf_width = total_size / options.num_columns;
+        let mut shelf_width = width / options.num_columns;
         shelf_width -= shelf_width % shelf_alignment;
 
         let mut atlas = AtlasAllocator {
             shelves: Vec::new(),
             items: Vec::new(),
-            size,
+            size: size2(width, height),
             alignment: options.alignment,
             flip_xy: options.vertical_shelves,
             first_shelf: ShelfIndex(0),
@@ -160,7 +160,11 @@ impl AtlasAllocator {
     }
 
     pub fn size(&self) -> Size {
-        self.size
+        if self.flip_xy {
+            size2(self.size.height, self.size.width)
+        } else {
+            self.size
+        }
     }
 
     /// Allocate a rectangle in the atlas.
@@ -172,18 +176,17 @@ impl AtlasAllocator {
         adjust_size(self.alignment.width, &mut size.width);
         adjust_size(self.alignment.height, &mut size.height);
 
-        if size.width > self.size.width || size.height > self.size.height {
-            return None;
-        }
-
         let (width, height) = convert_coordinates(self.flip_xy, size.width as u16, size.height as u16);
         let height = shelf_height(height);
+
+        if width > self.shelf_width || height > self.size.height as u16 {
+            return None;
+        }
 
         let mut selected_shelf_height = std::u16::MAX;
         let mut selected_shelf = ShelfIndex::NONE;
         let mut selected_item = ItemIndex::NONE;
         let mut shelf_idx = self.first_shelf;
-
         while shelf_idx.is_some() {
             let shelf = &self.shelves[shelf_idx.index()];
 
@@ -197,7 +200,7 @@ impl AtlasAllocator {
             let mut item_idx = shelf.first_item;
             while item_idx.is_some() {
                 let item = &self.items[item_idx.index()];
-                if !item.allocated && item.width > width {
+                if !item.allocated && item.width >= width {
                     break;
                 }
 
@@ -217,7 +220,6 @@ impl AtlasAllocator {
 
             shelf_idx = shelf.next;
         }
-
 
         if selected_shelf.is_none() {
             return None;
@@ -566,14 +568,14 @@ pub fn dump_into_svg(atlas: &AtlasAllocator, rect: Option<&Rectangle>, output: &
     while shelf_idx.is_some() {
         let shelf = &atlas.shelves[shelf_idx.index()];
 
-        let y = shelf.y as f32 * sy + ty;
+        let y = shelf.y as f32 * sy;
         let h = shelf.height as f32 * sy;
 
         let mut item_idx = shelf.first_item;
         while item_idx.is_some() {
             let item = &atlas.items[item_idx.index()];
 
-            let x = item.x as f32 * sx + tx;
+            let x = item.x as f32 * sx;
             let w = item.width as f32 * sx;
 
             let color = if item.allocated {
@@ -588,7 +590,7 @@ pub fn dump_into_svg(atlas: &AtlasAllocator, rect: Option<&Rectangle>, output: &
             writeln!(
                 output,
                 r#"    {}"#,
-                rectangle(x, y, w, h).fill(color).stroke(Stroke::Color(black(), 1.0))
+                rectangle(x + tx, y + ty, w, h).fill(color).stroke(Stroke::Color(black(), 1.0))
             )?;
 
             item_idx = item.next;
@@ -633,8 +635,6 @@ fn shelf_height(mut size: u16) -> u16 {
 
 #[test]
 fn test_simple() {
-    use crate::size2;
-
     let mut atlas = AtlasAllocator::new(size2(1000, 1000));
     assert!(atlas.is_empty());
 
@@ -657,8 +657,6 @@ fn test_simple() {
 
 #[test]
 fn test_options() {
-    use crate::size2;
-
     let alignment = size2(8, 16);
 
     let mut atlas = AtlasAllocator::with_options(
@@ -666,6 +664,7 @@ fn test_options() {
         &AllocatorOptions {
             alignment,
             vertical_shelves: true,
+            num_columns: 1,
         },
     );
     assert!(atlas.is_empty());
@@ -698,6 +697,34 @@ fn test_options() {
     atlas.deallocate(a1.id);
     atlas.deallocate(a2.id);
     atlas.deallocate(a3.id);
+
+    assert!(atlas.is_empty());
+}
+
+#[test]
+fn vertical() {
+    let mut atlas = AtlasAllocator::with_options(size2(128, 256), &AllocatorOptions {
+        num_columns: 2,
+        vertical_shelves: true,
+        ..DEFAULT_OPTIONS
+    });
+
+    assert_eq!(atlas.size(), size2(128, 256));
+
+    let a = atlas.allocate(size2(32, 16)).unwrap();
+    let b = atlas.allocate(size2(16, 32)).unwrap();
+
+    assert!(a.rectangle.size().width >= 32);
+    assert!(a.rectangle.size().height >= 16);
+
+    assert!(b.rectangle.size().width >= 16);
+    assert!(b.rectangle.size().height >= 32);
+
+    let c = atlas.allocate(size2(128, 128)).unwrap();
+
+    atlas.deallocate(a.id);
+    atlas.deallocate(b.id);
+    atlas.deallocate(c.id);
 
     assert!(atlas.is_empty());
 }
