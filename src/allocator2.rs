@@ -36,6 +36,7 @@ impl ItemIndex {
 #[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 struct Shelf {
+    x: u16,
     y: u16,
     height: u16,
     prev: ShelfIndex,
@@ -71,45 +72,35 @@ pub struct AtlasAllocator {
     first_shelf: ShelfIndex,
     free_items: ItemIndex,
     free_shelves: ShelfIndex,
+    shelf_width: u16,
 }
 
 impl AtlasAllocator {
     /// Create an atlas allocator with provided options.
     pub fn with_options(size: Size, options: &AllocatorOptions) -> Self {
-        assert!(size.width > 0);
-        assert!(size.height > 0);
-        assert!(size.width <= std::u16::MAX as i32);
-        assert!(size.height <= std::u16::MAX as i32);
-        assert!(options.alignment.width > 0);
-        assert!(options.alignment.height > 0);
+        let (shelf_alignment, total_size) = if options.vertical_shelves {
+            (options.alignment.height, size.height)
+        } else {
+            (options.alignment.width, size.width)
+        };
+        let mut shelf_width = total_size / options.num_columns;
+        shelf_width -= shelf_width % shelf_alignment;
 
-        let first_shelf = ShelfIndex(0);
-        let first_item = ItemIndex(0);
-
-        AtlasAllocator {
-            shelves: vec![Shelf {
-                y: 0,
-                height: size.height as u16,
-                prev: ShelfIndex::NONE,
-                next: ShelfIndex::NONE,
-                is_empty: true,
-                first_item,
-            }],
-            items: vec![Item {
-                x: 0,
-                width: size.width as u16,
-                prev: ItemIndex::NONE,
-                next: ItemIndex::NONE,
-                shelf: first_shelf,
-                allocated: false,
-            }],
+        let mut atlas = AtlasAllocator {
+            shelves: Vec::new(),
+            items: Vec::new(),
             size,
             alignment: options.alignment,
             flip_xy: options.vertical_shelves,
-            first_shelf,
+            first_shelf: ShelfIndex(0),
             free_items: ItemIndex::NONE,
             free_shelves: ShelfIndex::NONE,
-        }
+            shelf_width: shelf_width as u16,
+        };
+
+        atlas.init();
+
+        atlas
     }
 
     /// Create an atlas allocator with default options.
@@ -118,34 +109,54 @@ impl AtlasAllocator {
     }
 
     pub fn clear(&mut self) {
-        self.items.clear();
+        self.init();
+    }
+
+    fn init(&mut self) {
+        assert!(self.size.width > 0);
+        assert!(self.size.height > 0);
+        assert!(self.size.width <= std::u16::MAX as i32);
+        assert!(self.size.height <= std::u16::MAX as i32);
+        assert!(self.alignment.width > 0);
+        assert!(self.alignment.height > 0);
+
         self.shelves.clear();
+        self.items.clear();
 
-        let first_shelf = ShelfIndex(0);
-        let first_item = ItemIndex(0);
+        let num_columns = self.size.width as u16 / self.shelf_width;
 
-        self.shelves.push(Shelf {
-            y: 0,
-            height: self.size.height as u16,
-            prev: ShelfIndex::NONE,
-            next: ShelfIndex::NONE,
-            is_empty: true,
-            first_item,
-        });
+        let mut prev = ShelfIndex::NONE;
+        for i in 0..num_columns {
+            let first_item = ItemIndex(self.items.len() as u16);
+            let x = i * self.shelf_width;
+            let current = ShelfIndex(i);
+            let next = if i + 1 < num_columns { ShelfIndex(i + 1) } else { ShelfIndex::NONE };
 
-        self.items.push(Item {
-            x: 0,
-            width: self.size.width as u16,
-            prev: ItemIndex::NONE,
-            next: ItemIndex::NONE,
-            shelf: first_shelf,
-            allocated: false,
-        });
+            self.shelves.push(Shelf {
+                x,
+                y: 0,
+                height: self.size.height as u16,
+                prev,
+                next,
+                is_empty: true,
+                first_item,
+            });
 
-        self.first_shelf = first_shelf;
+            self.items.push(Item {
+                x,
+                width: self.shelf_width,
+                prev: ItemIndex::NONE,
+                next: ItemIndex::NONE,
+                shelf: current,
+                allocated: false,
+            });
 
-        self.free_shelves = ShelfIndex::NONE;
+            prev = current;
+        }
+
+        self.first_shelf = ShelfIndex(0);
         self.free_items = ItemIndex::NONE;
+        self.free_shelves = ShelfIndex::NONE;
     }
 
     pub fn size(&self) -> Size {
@@ -178,7 +189,7 @@ impl AtlasAllocator {
 
             if shelf.height < height
                 || shelf.height >= selected_shelf_height
-                || (!shelf.is_empty && shelf.height > height * 2) {
+                || (!shelf.is_empty && shelf.height > height + height / 2) {
                 shelf_idx = shelf.next;
                 continue;
             }
@@ -222,6 +233,7 @@ impl AtlasAllocator {
             // empty one with a single empty item.
 
             let new_shelf_idx =  self.add_shelf(Shelf {
+                x: shelf.x,
                 y: shelf.y + height,
                 height: shelf.height - height,
                 prev: selected_shelf,
@@ -231,8 +243,8 @@ impl AtlasAllocator {
             });
 
             let new_item_idx = self.add_item(Item {
-                x: 0,
-                width: self.size.width as u16,
+                x: shelf.x,
+                width: self.shelf_width,
                 prev: ItemIndex::NONE,
                 next: ItemIndex::NONE,
                 shelf: new_shelf_idx,
@@ -281,6 +293,7 @@ impl AtlasAllocator {
         let (x0, y0) = convert_coordinates(self.flip_xy, x0, y0);
         let (x1, y1) = convert_coordinates(self.flip_xy, x1, y1);
 
+        #[cfg(feature = "checks")]
         self.check();
 
         Some(Allocation {
@@ -343,8 +356,13 @@ impl AtlasAllocator {
             // The shelf is now empty. 
             self.shelves[shelf_idx.index()].is_empty = true;
 
+            // Only attempt to merge shelves on the same column.
+            let x = self.shelves[shelf_idx.index()].x;
+
             let next_shelf = self.shelves[shelf_idx.index()].next;
-            if next_shelf.is_some() && self.shelves[next_shelf.index()].is_empty {
+            if next_shelf.is_some()
+                && self.shelves[next_shelf.index()].is_empty
+                && self.shelves[next_shelf.index()].x == x {
                 // Merge the next shelf into this one.
 
                 let next_next = self.shelves[next_shelf.index()].next;
@@ -362,7 +380,9 @@ impl AtlasAllocator {
             }
 
             let prev_shelf = self.shelves[shelf_idx.index()].prev;
-            if prev_shelf.is_some() && self.shelves[prev_shelf.index()].is_empty {
+            if prev_shelf.is_some()
+                && self.shelves[prev_shelf.index()].is_empty
+                && self.shelves[prev_shelf.index()].x == x {
                 // Merge the shelf into the previous one.
 
                 let next_shelf = self.shelves[shelf_idx.index()].next;
@@ -379,14 +399,23 @@ impl AtlasAllocator {
             }
         }
 
+        #[cfg(feature = "checks")]
         self.check();
     }
 
     pub fn is_empty(&self) -> bool {
-        let shelf = &self.shelves[self.first_shelf.index()];
-        let item = &self.items[shelf.first_item.index()];
+        let mut shelf_idx = self.first_shelf;
 
-        shelf.next.is_none() && item.next.is_none() && !item.allocated
+        while shelf_idx.is_some() {
+            let shelf = &self.shelves[shelf_idx.index()];
+            if !shelf.is_empty {
+                return false;
+            }
+
+            shelf_idx = shelf.next;
+        }
+
+        true
     }
 
     fn remove_item(&mut self, idx: ItemIndex) {
@@ -432,20 +461,28 @@ impl AtlasAllocator {
         idx
     }
 
+    #[cfg(feature = "checks")]
     fn check(&self) {
         let (target_w, target_h) = if self.flip_xy {
-            (self.size.height, self.size.width)
+            (self.size.height, self.shelf_width as i32)
         } else {
-            (self.size.width, self.size.height)
+            (self.shelf_width as i32, self.size.height)
         };
 
         let mut prev_empty = false;
         let mut accum_h = 0;
         let mut shelf_idx = self.first_shelf;
+        let mut shelf_x = 0;
         while shelf_idx.is_some() {
             let shelf = &self.shelves[shelf_idx.index()];
+            let new_column = shelf_x != shelf.x;
+            if new_column {
+                assert_eq!(accum_h as i32, target_h);
+                accum_h = 0;
+            }
+            shelf_x = shelf.x;
             accum_h += shelf.height;
-            if prev_empty {
+            if prev_empty && !new_column {
                 assert!(!shelf.is_empty);
             }
             if shelf.is_empty {
@@ -477,8 +514,6 @@ impl AtlasAllocator {
 
             shelf_idx = shelf.next;
         }
-
-        assert_eq!(accum_h as i32, target_h);
     }
 }
 
