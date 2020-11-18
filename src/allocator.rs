@@ -517,90 +517,91 @@ impl AtlasAllocator {
             shelf_idx = shelf.next;
         }
     }
-}
 
+    /// Dump a visual representation of the atlas in SVG format.
+    pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+        use svg_fmt::*;
 
-/// Dump a visual representation of the atlas in SVG format.
-pub fn dump_svg(atlas: &AtlasAllocator, output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    use svg_fmt::*;
+        writeln!(
+            output,
+            "{}",
+            BeginSvg {
+                w: self.size.width as f32,
+                h: self.size.height as f32
+            }
+        )?;
 
-    writeln!(
-        output,
-        "{}",
-        BeginSvg {
-            w: atlas.size.width as f32,
-            h: atlas.size.height as f32
-        }
-    )?;
+        self.dump_into_svg(None, output)?;
 
-    dump_into_svg(atlas, None, output)?;
-
-    writeln!(output, "{}", EndSvg)
-}
-
-/// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
-/// SVG document, so that it can be included in a larger document.
-///
-/// If a rectangle is provided, translate and scale the output to fit it.
-pub fn dump_into_svg(atlas: &AtlasAllocator, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    use svg_fmt::*;
-
-    let (sx, sy, tx, ty) = if let Some(rect) = rect {
-        (
-            rect.size().width as f32 / atlas.size.width as f32,
-            rect.size().height as f32 / atlas.size.height as f32,
-            rect.min.x as f32,
-            rect.min.y as f32,
-        )
-    } else {
-        (1.0, 1.0, 0.0, 0.0)        
-    };
-
-    writeln!(
-        output,
-        r#"    {}"#,
-        rectangle(tx, ty, atlas.size.width as f32 * sx, atlas.size.height as f32 * sy)
-            .fill(rgb(40, 40, 40))
-            .stroke(Stroke::Color(black(), 1.0))
-    )?;
-
-    let mut shelf_idx = atlas.first_shelf;
-    while shelf_idx.is_some() {
-        let shelf = &atlas.shelves[shelf_idx.index()];
-
-        let y = shelf.y as f32 * sy;
-        let h = shelf.height as f32 * sy;
-
-        let mut item_idx = shelf.first_item;
-        while item_idx.is_some() {
-            let item = &atlas.items[item_idx.index()];
-
-            let x = item.x as f32 * sx;
-            let w = item.width as f32 * sx;
-
-            let color = if item.allocated {
-                rgb(70, 70, 180)
-            } else {
-                rgb(50, 50, 50)
-            };
-
-            let (x, y) = if atlas.flip_xy { (y, x) } else { (x, y) };
-            let (w, h) = if atlas.flip_xy { (h, w) } else { (w, h) };
-
-            writeln!(
-                output,
-                r#"    {}"#,
-                rectangle(x + tx, y + ty, w, h).fill(color).stroke(Stroke::Color(black(), 1.0))
-            )?;
-
-            item_idx = item.next;
-        }
-
-        shelf_idx = shelf.next;
+        writeln!(output, "{}", EndSvg)
     }
 
-    Ok(())
+    /// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
+    /// SVG document, so that it can be included in a larger document.
+    ///
+    /// If a rectangle is provided, translate and scale the output to fit it.
+    pub fn dump_into_svg(&self, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+        use svg_fmt::*;
+
+        let (sx, sy, tx, ty) = if let Some(rect) = rect {
+            (
+                rect.size().width as f32 / self.size.width as f32,
+                rect.size().height as f32 / self.size.height as f32,
+                rect.min.x as f32,
+                rect.min.y as f32,
+            )
+        } else {
+            (1.0, 1.0, 0.0, 0.0)
+        };
+
+        writeln!(
+            output,
+            r#"    {}"#,
+            rectangle(tx, ty, self.size.width as f32 * sx, self.size.height as f32 * sy)
+                .fill(rgb(40, 40, 40))
+                .stroke(Stroke::Color(black(), 1.0))
+        )?;
+
+        let mut shelf_idx = self.first_shelf;
+        while shelf_idx.is_some() {
+            let shelf = &self.shelves[shelf_idx.index()];
+
+            let y = shelf.y as f32 * sy;
+            let h = shelf.height as f32 * sy;
+
+            let mut item_idx = shelf.first_item;
+            while item_idx.is_some() {
+                let item = &self.items[item_idx.index()];
+
+                let x = item.x as f32 * sx;
+                let w = item.width as f32 * sx;
+
+                let color = if item.allocated {
+                    rgb(70, 70, 180)
+                } else {
+                    rgb(50, 50, 50)
+                };
+
+                let (x, y) = if self.flip_xy { (y, x) } else { (x, y) };
+                let (w, h) = if self.flip_xy { (h, w) } else { (w, h) };
+
+                writeln!(
+                    output,
+                    r#"    {}"#,
+                    rectangle(x + tx, y + ty, w, h).fill(color).stroke(Stroke::Color(black(), 1.0))
+                )?;
+
+                item_idx = item.next;
+            }
+
+            shelf_idx = shelf.next;
+        }
+
+        Ok(())
+    }
+
 }
+
 
 fn adjust_size(alignment: i32, size: &mut i32) {
     let rem = *size % alignment;

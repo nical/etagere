@@ -4,8 +4,9 @@ pub extern crate serde;
 pub extern crate euclid;
 
 mod bucketed;
-pub mod allocator2;
+mod allocator;
 
+pub use allocator::*;
 pub use bucketed::*;
 pub use euclid::{point2, size2};
 

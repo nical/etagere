@@ -315,7 +315,7 @@ fn svg(args: &ArgMatches) {
         "Failed to open the SVG file."
     );
 
-    etagere::dump_svg(&session.atlas, &mut svg_file).expect(
+    session.atlas.dump_svg(&mut svg_file).expect(
         "Failed to write into the SVG file."
     );
 }

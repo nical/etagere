@@ -471,6 +471,99 @@ impl BucketedAtlasAllocator {
 
         true
     }
+
+
+    /// Dump a visual representation of the atlas in SVG format.
+    pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+        use svg_fmt::*;
+
+        writeln!(
+            output,
+            "{}",
+            BeginSvg {
+                w: self.width as f32,
+                h: self.height as f32
+            }
+        )?;
+
+        self.dump_into_svg(None, output)?;
+
+        writeln!(output, "{}", EndSvg)
+    }
+
+    /// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
+    /// SVG document, so that it can be included in a larger document.
+    ///
+    /// If a rectangle is provided, translate and scale the output to fit it.
+    pub fn dump_into_svg(&self, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+        use svg_fmt::*;
+
+        let (sx, sy, tx, ty) = if let Some(rect) = rect {
+            (
+                rect.size().width as f32 / self.width as f32,
+                rect.size().height as f32 / self.height as f32,
+                rect.min.x as f32,
+                rect.min.y as f32,
+            )
+        } else {
+            (1.0, 1.0, 0.0, 0.0)
+        };
+
+        writeln!(
+            output,
+            r#"    {}"#,
+            rectangle(tx, ty, self.width as f32 * sx, self.height as f32 * sy)
+                .fill(rgb(40, 40, 40))
+                .stroke(Stroke::Color(black(), 1.0))
+        )?;
+
+
+        for shelf in &self.shelves {
+            let mut bin_index = shelf.first_bin;
+
+            let y = shelf.y as f32 * sy;
+            let h = shelf.height as f32 * sy;
+            while bin_index != BinIndex::INVALID {
+                let bin = &self.bins[bin_index.to_usize()];
+
+                let x = bin.x as f32 * sx;
+                let w = (shelf.bin_width - bin.free_space) as f32 * sx;
+
+                {
+                    let (x, y) = if self.flip_xy { (y, x) } else { (x, y) };
+                    let (w, h) = if self.flip_xy { (h, w) } else { (w, h) };
+
+                    writeln!(
+                        output,
+                        r#"    {}"#,
+                        rectangle(x + tx, y + ty, w, h)
+                            .fill(rgb(70, 70, 180))
+                            .stroke(Stroke::Color(black(), 1.0))
+                    )?;
+                }
+
+                if bin.free_space > 0 {
+                    let x_free = x + w;
+                    let w_free = bin.free_space as f32 * sx;
+
+                    let (x_free, y) = if self.flip_xy { (y, x_free) } else { (x_free, y) };
+                    let (w_free, h) = if self.flip_xy { (h, w_free) } else { (w_free, h) };
+
+                    writeln!(
+                        output,
+                        r#"    {}"#,
+                        rectangle(x_free + tx, y + ty, w_free, h)
+                            .fill(rgb(50, 50, 50))
+                            .stroke(Stroke::Color(black(), 1.0))
+                    )?;
+                }
+
+                bin_index = bin.next;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn convert_coordinates(flip_xy: bool, x: u16, y: u16) -> (u16, u16) {
@@ -496,99 +589,6 @@ fn shelf_height(mut size: u16) -> u16 {
     }
 
     size
-}
-
-
-/// Dump a visual representation of the atlas in SVG format.
-pub fn dump_svg(atlas: &BucketedAtlasAllocator, output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    use svg_fmt::*;
-
-    writeln!(
-        output,
-        "{}",
-        BeginSvg {
-            w: atlas.width as f32,
-            h: atlas.height as f32
-        }
-    )?;
-
-    dump_into_svg(atlas, None, output)?;
-
-    writeln!(output, "{}", EndSvg)
-}
-
-/// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
-/// SVG document, so that it can be included in a larger document.
-///
-/// If a rectangle is provided, translate and scale the output to fit it.
-pub fn dump_into_svg(atlas: &BucketedAtlasAllocator, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
-    use svg_fmt::*;
-
-    let (sx, sy, tx, ty) = if let Some(rect) = rect {
-        (
-            rect.size().width as f32 / atlas.width as f32,
-            rect.size().height as f32 / atlas.height as f32,
-            rect.min.x as f32,
-            rect.min.y as f32,
-        )
-    } else {
-        (1.0, 1.0, 0.0, 0.0)        
-    };
-
-    writeln!(
-        output,
-        r#"    {}"#,
-        rectangle(tx, ty, atlas.width as f32 * sx, atlas.height as f32 * sy)
-            .fill(rgb(40, 40, 40))
-            .stroke(Stroke::Color(black(), 1.0))
-    )?;
-
-
-    for shelf in &atlas.shelves {
-        let mut bin_index = shelf.first_bin;
-
-        let y = shelf.y as f32 * sy;
-        let h = shelf.height as f32 * sy;
-        while bin_index != BinIndex::INVALID {
-            let bin = &atlas.bins[bin_index.to_usize()];
-
-            let x = bin.x as f32 * sx;
-            let w = (shelf.bin_width - bin.free_space) as f32 * sx;
-
-            {
-                let (x, y) = if atlas.flip_xy { (y, x) } else { (x, y) };
-                let (w, h) = if atlas.flip_xy { (h, w) } else { (w, h) };
-
-                writeln!(
-                    output,
-                    r#"    {}"#,
-                    rectangle(x + tx, y + ty, w, h)
-                        .fill(rgb(70, 70, 180))
-                        .stroke(Stroke::Color(black(), 1.0))
-                )?;
-            }
-
-            if bin.free_space > 0 {
-                let x_free = x + w;
-                let w_free = bin.free_space as f32 * sx;
-
-                let (x_free, y) = if atlas.flip_xy { (y, x_free) } else { (x_free, y) };
-                let (w_free, h) = if atlas.flip_xy { (h, w_free) } else { (w_free, h) };
-
-                writeln!(
-                    output,
-                    r#"    {}"#,
-                    rectangle(x_free + tx, y + ty, w_free, h)
-                        .fill(rgb(50, 50, 50))
-                        .stroke(Stroke::Color(black(), 1.0))
-                )?;
-            }
-
-            bin_index = bin.next;
-        }
-    }
-
-    Ok(())
 }
 
 fn adjust_size(alignment: i32, size: &mut i32) {
