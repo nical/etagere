@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 
 #[derive(Serialize, Deserialize)]
 struct Session {
-    atlas: AtlasAllocator,
+    atlas: BucketedAtlasAllocator,
     names: std::collections::HashMap<String, Allocation>,
     next_id: u32,
 }
@@ -239,7 +239,7 @@ fn init(args: &ArgMatches) {
     };
 
     let session = Session {
-        atlas: AtlasAllocator::with_options(size2(w, h), &options),
+        atlas: BucketedAtlasAllocator::with_options(size2(w, h), &options),
         names: std::collections::HashMap::default(),
         next_id: 0,
     };

@@ -70,7 +70,7 @@ struct Bin {
 /// This allocator works well when there are a lot of small items with similar sizes (typically, glyph atlases).
 #[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct AtlasAllocator {
+pub struct BucketedAtlasAllocator {
     shelves: Vec<Shelf>,
     bins: Vec<Bin>,
     available_height: u16,
@@ -84,7 +84,7 @@ pub struct AtlasAllocator {
     num_columns: u16,
 }
 
-impl AtlasAllocator {
+impl BucketedAtlasAllocator {
     /// Create an atlas allocator with provided options.
     pub fn with_options(size: Size, options: &AllocatorOptions) -> Self {
         assert!(size.width < u16::MAX as i32);
@@ -99,7 +99,7 @@ impl AtlasAllocator {
         let mut column_width = width / (options.num_columns as u16);
         column_width = column_width - column_width % shelf_alignment;
 
-        AtlasAllocator {
+        BucketedAtlasAllocator {
             shelves: Vec::new(),
             bins: Vec::new(),
             available_height: height,
@@ -500,7 +500,7 @@ fn shelf_height(mut size: u16) -> u16 {
 
 
 /// Dump a visual representation of the atlas in SVG format.
-pub fn dump_svg(atlas: &AtlasAllocator, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+pub fn dump_svg(atlas: &BucketedAtlasAllocator, output: &mut dyn std::io::Write) -> std::io::Result<()> {
     use svg_fmt::*;
 
     writeln!(
@@ -521,7 +521,7 @@ pub fn dump_svg(atlas: &AtlasAllocator, output: &mut dyn std::io::Write) -> std:
 /// SVG document, so that it can be included in a larger document.
 ///
 /// If a rectangle is provided, translate and scale the output to fit it.
-pub fn dump_into_svg(atlas: &AtlasAllocator, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
+pub fn dump_into_svg(atlas: &BucketedAtlasAllocator, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
     use svg_fmt::*;
 
     let (sx, sy, tx, ty) = if let Some(rect) = rect {
@@ -600,7 +600,7 @@ fn adjust_size(alignment: i32, size: &mut i32) {
 
 #[test]
 fn atlas_basic() {
-    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+    let mut atlas = BucketedAtlasAllocator::new(size2(1000, 1000));
 
     let full = atlas.allocate(size2(1000, 1000)).unwrap().id;
     assert!(atlas.allocate(size2(1, 1)).is_none());
@@ -634,7 +634,7 @@ fn atlas_basic() {
 
 #[test]
 fn fuzz_01() {
-    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+    let mut atlas = BucketedAtlasAllocator::new(size2(1000, 1000));
 
     assert!(atlas.allocate(size2(65280, 1)).is_none());
     assert!(atlas.allocate(size2(1, 65280)).is_none());
@@ -642,7 +642,7 @@ fn fuzz_01() {
 
 #[test]
 fn test_coalesce_shelves() {
-    let mut atlas = AtlasAllocator::new(size2(256, 256));
+    let mut atlas = BucketedAtlasAllocator::new(size2(256, 256));
 
     // Allocate 7 shelves (leaving 32px of remaining space on top).
     let mut ids = Vec::new();
@@ -688,7 +688,7 @@ fn test_coalesce_shelves() {
 
 #[test]
 fn columns() {
-    let mut atlas = AtlasAllocator::with_options(size2(64, 64), &AllocatorOptions {
+    let mut atlas = BucketedAtlasAllocator::with_options(size2(64, 64), &AllocatorOptions {
         num_columns: 2,
         ..DEFAULT_OPTIONS
     });
@@ -734,7 +734,7 @@ fn columns() {
 
 #[test]
 fn vertical() {
-    let mut atlas = AtlasAllocator::with_options(size2(128, 256), &AllocatorOptions {
+    let mut atlas = BucketedAtlasAllocator::with_options(size2(128, 256), &AllocatorOptions {
         num_columns: 2,
         vertical_shelves: true,
         ..DEFAULT_OPTIONS

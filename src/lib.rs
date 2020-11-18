@@ -3,10 +3,10 @@
 pub extern crate serde;
 pub extern crate euclid;
 
-mod allocator;
+mod bucketed;
 pub mod allocator2;
 
-pub use allocator::*;
+pub use bucketed::*;
 pub use euclid::{point2, size2};
 
 pub type Point = euclid::default::Point2D<i32>;
