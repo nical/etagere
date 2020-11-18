@@ -36,6 +36,13 @@ fn main() {
                 .takes_value(true)
                 .required(true)
             )
+            .arg(Arg::with_name("COLUMNS")
+                .long("columns")
+                .help("Split the allocator into multiple columns.")
+                .value_name("COLUMNS")
+                .takes_value(true)
+                .required(false)
+            )
             .arg(Arg::with_name("VERTICAL_SHELVES")
                 .long("vertical-shelves")
                 .help("Use vertical instead of horizontal shelves.")
@@ -225,6 +232,10 @@ fn init(args: &ArgMatches) {
                 .unwrap_or(default_options.alignment.width),
         ),
         vertical_shelves: args.is_present("VERTICAL_SHELVES"),
+        num_columns: args.value_of("ALIGN_X")
+            .map(|s| s.parse::<i32>().unwrap())
+            .unwrap_or(default_options.num_columns),
+
     };
 
     let session = Session {
