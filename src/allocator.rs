@@ -59,7 +59,7 @@ struct Item {
 // Note: if allocating is slow we can use the guillotiere trick of storing multiple lists of free
 // rects (per shelf height) instead of iterating the shelves and items.
 
-/// A shelf-packing dynamic atlas allocator tracking each allocation individually and with support
+/// A shelf-packing dynamic texture atlas allocator tracking each allocation individually and with support
 /// for coalescing empty shelves.
 #[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
@@ -647,7 +647,7 @@ fn test_simple() {
     assert!(a1.id != a3.id);
     assert!(!atlas.is_empty());
 
-    //dump_svg(&atlas, &mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
+    //atlas.dump_svg(&mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
 
     atlas.deallocate(a1.id);
     atlas.deallocate(a2.id);
@@ -693,7 +693,7 @@ fn test_options() {
     assert!(a3.rectangle.size().height >= 30);
 
 
-    dump_svg(&atlas, &mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
+    //atlas.dump_svg(&mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
 
     atlas.deallocate(a1.id);
     atlas.deallocate(a2.id);

@@ -56,7 +56,7 @@ struct Bin {
     generation: Wrapping<u8>,
 }
 
-/// A Shelf-packing dynamic texture atlas allocator, inspired by https://github.com/mapbox/shelf-pack/
+/// A faster but less precise Shelf-packing dynamic texture atlas allocator, inspired by https://github.com/mapbox/shelf-pack/
 ///
 /// Items are accumulated into bins which are laid out in rows (shelves) of variable height.
 /// When allocating we first look for a suitable bin. If none is found, a new shelf of the desired height
