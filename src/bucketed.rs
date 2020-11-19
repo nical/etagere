@@ -17,14 +17,14 @@ const MAX_SHELF_COUNT: usize = u16::MAX as usize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-struct BinIndex(u16);
+struct BucketIndex(u16);
 
-impl BinIndex {
+impl BucketIndex {
     fn to_usize(self) -> usize {
         self.0 as usize
     }
 
-    const INVALID: Self = BinIndex(u16::MAX);
+    const INVALID: Self = BucketIndex(u16::MAX);
 }
 
 #[derive(Clone)]
@@ -33,24 +33,24 @@ struct Shelf {
     x: u16,
     y: u16,
     height: u16,
-    bin_width: u16,
+    bucket_width: u16,
 
-    first_bin: BinIndex,
+    first_bucket: BucketIndex,
 }
 
 #[derive(Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-struct Bin {
+struct Bucket {
     x: u16,
     free_space: u16,
 
-    next: BinIndex,
+    next: BucketIndex,
 
-    /// Bins are cleared when their reference count goes back to zero.
+    /// Buckets are cleared when their reference count goes back to zero.
     refcount: u16,
     /// Similar to refcount except that the counter is not decremented
     /// when an item is deallocated. We only use this so that allocation
-    /// ids are unique within a bin.
+    /// ids are unique within a bucket.
     item_count: u16,
     shelf: u16,
     generation: Wrapping<u8>,
@@ -58,12 +58,12 @@ struct Bin {
 
 /// A faster but less precise Shelf-packing dynamic texture atlas allocator, inspired by https://github.com/mapbox/shelf-pack/
 ///
-/// Items are accumulated into bins which are laid out in rows (shelves) of variable height.
-/// When allocating we first look for a suitable bin. If none is found, a new shelf of the desired height
+/// Items are accumulated into buckets which are laid out in rows (shelves) of variable height.
+/// When allocating we first look for a suitable bucket. If none is found, a new shelf of the desired height
 /// is pushed.
 ///
-/// Lifetime isn't tracked at item granularity. Instead, items are grouped into bins and deallocation happens
-/// per bin when all items of the bins are removed.
+/// Lifetime isn't tracked at item granularity. Instead, items are grouped into buckets and deallocation happens
+/// per bucket when all items of the buckets are removed.
 /// When the top-most shelf is empty, it is removed, potentially cascading into garbage-collecting the next
 /// shelf, etc.
 ///
@@ -72,11 +72,11 @@ struct Bin {
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub struct BucketedAtlasAllocator {
     shelves: Vec<Shelf>,
-    bins: Vec<Bin>,
+    buckets: Vec<Bucket>,
     available_height: u16,
     width: u16,
     height: u16,
-    first_unallocated_bin: BinIndex,
+    first_unallocated_bucket: BucketIndex,
     flip_xy: bool,
     alignment: Size,
     current_column: u16,
@@ -101,11 +101,11 @@ impl BucketedAtlasAllocator {
 
         BucketedAtlasAllocator {
             shelves: Vec::new(),
-            bins: Vec::new(),
+            buckets: Vec::new(),
             available_height: height,
             width,
             height,
-            first_unallocated_bin: BinIndex::INVALID,
+            first_unallocated_bucket: BucketIndex::INVALID,
             flip_xy: options.vertical_shelves,
             alignment: options.alignment,
             current_column: 0,
@@ -121,8 +121,8 @@ impl BucketedAtlasAllocator {
 
     pub fn clear(&mut self) {
         self.shelves.clear();
-        self.bins.clear();
-        self.first_unallocated_bin = BinIndex::INVALID;
+        self.buckets.clear();
+        self.first_unallocated_bucket = BucketIndex::INVALID;
     }
 
     pub fn size(&self) -> Size {
@@ -150,15 +150,15 @@ impl BucketedAtlasAllocator {
         let (w, h) = convert_coordinates(self.flip_xy, requested_size.width as u16, requested_size.height as u16);
 
         let mut selected_shelf = std::usize::MAX;
-        let mut selected_bin = BinIndex::INVALID;
+        let mut selected_bucket = BucketIndex::INVALID;
         let mut best_waste = u16::MAX;
 
         let can_add_shelf = (self.available_height >= h || self.current_column + 1 < self.num_columns)
             && self.shelves.len() < MAX_SHELF_COUNT
-            && self.bins.len() < MAX_BIN_COUNT;
+            && self.buckets.len() < MAX_BIN_COUNT;
 
         'shelves: for (shelf_index, shelf) in self.shelves.iter().enumerate() {
-            if shelf.height < h || shelf.bin_width < w {
+            if shelf.height < h || shelf.bucket_width < w {
                 continue;
             }
 
@@ -167,14 +167,14 @@ impl BucketedAtlasAllocator {
                 continue;
             }
 
-            let mut bin_index = shelf.first_bin;
-            while bin_index != BinIndex::INVALID {
-                let bin = &self.bins[bin_index.to_usize()];
+            let mut bucket_index = shelf.first_bucket;
+            while bucket_index != BucketIndex::INVALID {
+                let bucket = &self.buckets[bucket_index.to_usize()];
 
-                if bin.free_space >= w && bin.item_count < MAX_ITEMS_PER_BIN {
-                    if y_waste == 0 && bin.free_space == w {
+                if bucket.free_space >= w && bucket.item_count < MAX_ITEMS_PER_BIN {
+                    if y_waste == 0 && bucket.free_space == w {
                         selected_shelf = shelf_index;
-                        selected_bin = bin_index;
+                        selected_bucket = bucket_index;
 
                         break 'shelves;
                     }
@@ -182,29 +182,29 @@ impl BucketedAtlasAllocator {
                     if y_waste < best_waste {
                         best_waste = y_waste;
                         selected_shelf = shelf_index;
-                        selected_bin = bin_index;
+                        selected_bucket = bucket_index;
                         break;
                     }
                 }
 
-                bin_index = bin.next;
+                bucket_index = bucket.next;
             }
         }
 
-        if selected_bin == BinIndex::INVALID {
+        if selected_bucket == BucketIndex::INVALID {
             if can_add_shelf {
                 selected_shelf = self.add_shelf(w, h);
-                selected_bin = self.shelves[selected_shelf].first_bin;
+                selected_bucket = self.shelves[selected_shelf].first_bucket;
             } else {
                 // Attempt to merge some empty shelves to make a big enough spot.
                 let selected = self.coalesce_shelves(w, h);
                 selected_shelf = selected.0;
-                selected_bin = selected.1;
+                selected_bucket = selected.1;
             }
         }
 
-        if selected_bin != BinIndex::INVALID {
-            return self.alloc_from_bin(selected_shelf, selected_bin, w);
+        if selected_bucket != BucketIndex::INVALID {
+            return self.alloc_from_bucket(selected_shelf, selected_bucket, w);
         }
 
         return  None;
@@ -212,20 +212,20 @@ impl BucketedAtlasAllocator {
 
     /// Deallocate a rectangle in the atlas.
     ///
-    /// Space is only reclaimed when all items of the same bin are deallocated.
+    /// Space is only reclaimed when all items of the same bucket are deallocated.
     pub fn deallocate(&mut self, id: AllocId) {
-        if self.deallocate_from_bin(id) {
+        if self.deallocate_from_bucket(id) {
             self.cleanup_shelves();
         }
     }
 
-    fn alloc_from_bin(&mut self, shelf_index: usize, bin_index: BinIndex, width: u16) -> Option<Allocation> {
+    fn alloc_from_bucket(&mut self, shelf_index: usize, bucket_index: BucketIndex, width: u16) -> Option<Allocation> {
         let shelf = &mut self.shelves[shelf_index];
-        let bin = &mut self.bins[bin_index.to_usize()];
+        let bucket = &mut self.buckets[bucket_index.to_usize()];
 
-        debug_assert!(bin.free_space >= width);
+        debug_assert!(bucket.free_space >= width);
 
-        let min_x = bin.x + shelf.bin_width - bin.free_space;
+        let min_x = bucket.x + shelf.bucket_width - bucket.free_space;
         let min_y = shelf.y;
         let max_x = min_x + width;
         let max_y = min_y + shelf.height;
@@ -233,14 +233,14 @@ impl BucketedAtlasAllocator {
         let (min_x, min_y) = convert_coordinates(self.flip_xy, min_x, min_y);
         let (max_x, max_y) = convert_coordinates(self.flip_xy, max_x, max_y);
 
-        bin.free_space -= width;
-        bin.refcount += 1;
-        bin.item_count += 1;
+        bucket.free_space -= width;
+        bucket.refcount += 1;
+        bucket.item_count += 1;
 
         let id = AllocId(
-            (bin_index.0 as u32) & BIN_MASK
-            | ((bin.item_count as u32) << 12) & ITEM_MASK
-            | (bin.generation.0 as u32) << 24
+            (bucket_index.0 as u32) & BIN_MASK
+            | ((bucket.item_count as u32) << 12) & ITEM_MASK
+            | (bucket.generation.0 as u32) << 24
         );
 
         let rectangle = Rectangle {
@@ -269,51 +269,51 @@ impl BucketedAtlasAllocator {
         }
 
         let height = shelf_height(height).min(self.available_height);
-        let num_bins = self.num_bins(width, height);
-        let mut bin_width = self.column_width / num_bins;
-        bin_width = bin_width - (bin_width % self.alignment.width as u16); // TODO
+        let num_buckets = self.num_buckets(width, height);
+        let mut bucket_width = self.column_width / num_buckets;
+        bucket_width = bucket_width - (bucket_width % self.alignment.width as u16); // TODO
         let y = self.height - self.available_height;
         self.available_height -= height;
 
         let shelf_index = self.shelves.len();
 
-        // Initialize the bins for our new shelf.
+        // Initialize the buckets for our new shelf.
         let mut x = self.current_column * self.column_width;
-        let mut bin_next = BinIndex::INVALID;
-        for _ in 0..num_bins {
-            let mut bin = Bin {
-                next: bin_next,
+        let mut bucket_next = BucketIndex::INVALID;
+        for _ in 0..num_buckets {
+            let mut bucket = Bucket {
+                next: bucket_next,
                 x,
-                free_space: bin_width,
+                free_space: bucket_width,
                 refcount: 0,
                 shelf: shelf_index as u16,
                 generation: Wrapping(0),
                 item_count: 0,
             };
 
-            let mut bin_index = self.first_unallocated_bin;
-            x += bin_width;
+            let mut bucket_index = self.first_unallocated_bucket;
+            x += bucket_width;
 
-            if bin_index == BinIndex::INVALID {
-                bin_index = BinIndex(self.bins.len() as u16);
-                self.bins.push(bin);
+            if bucket_index == BucketIndex::INVALID {
+                bucket_index = BucketIndex(self.buckets.len() as u16);
+                self.buckets.push(bucket);
             } else {
-                let idx = bin_index.to_usize();
-                bin.generation = self.bins[idx].generation + Wrapping(1);
-                self.first_unallocated_bin = self.bins[idx].next;
+                let idx = bucket_index.to_usize();
+                bucket.generation = self.buckets[idx].generation + Wrapping(1);
+                self.first_unallocated_bucket = self.buckets[idx].next;
 
-                self.bins[idx] = bin;
+                self.buckets[idx] = bucket;
             }
 
-            bin_next = bin_index;
+            bucket_next = bucket_index;
         }
 
         self.shelves.push(Shelf {
             x: self.current_column * self.column_width,
             y,
             height,
-            bin_width,
-            first_bin: bin_next,
+            bucket_width,
+            first_bucket: bucket_next,
         });
 
         shelf_index
@@ -326,14 +326,14 @@ impl BucketedAtlasAllocator {
     /// ones to zero.
     /// The squashed shelves are not removed, their height is just set to zero so no item
     /// can go in, and they will be garbage-collected whenever there's no shelf above them.
-    /// For simplicity, the bin width is not modified.
-    fn coalesce_shelves(&mut self, w: u16, h: u16) -> (usize, BinIndex) {
+    /// For simplicity, the bucket width is not modified.
+    fn coalesce_shelves(&mut self, w: u16, h: u16) -> (usize, BucketIndex) {
         let len = self.shelves.len();
         let mut coalesce_range = None;
         let mut coalesced_height = 0;
 
         'outer: for shelf_index in 0..len {
-            if self.shelves[shelf_index].bin_width < w {
+            if self.shelves[shelf_index].bucket_width < w {
                 continue;
             }
             if !self.shelf_is_empty(shelf_index) {
@@ -373,80 +373,80 @@ impl BucketedAtlasAllocator {
             let shelf = &mut self.shelves[shelf_index];
             shelf.height = coalesced_height;
 
-            return (shelf_index, shelf.first_bin);
+            return (shelf_index, shelf.first_bucket);
         }
 
-        (0, BinIndex::INVALID)
+        (0, BucketIndex::INVALID)
     }
 
-    fn num_bins(&self, width: u16, height: u16) -> u16 {
+    fn num_buckets(&self, width: u16, height: u16) -> u16 {
         match self.column_width / u16::max(width, height) {
             0 ..= 4 => 1,
             5 ..= 15 => 2,
             16 ..= 64 => 4,
             65 ..= 256 => 8,
             _ => 16,
-        }.min((MAX_BIN_COUNT - self.bins.len()) as u16)
+        }.min((MAX_BIN_COUNT - self.buckets.len()) as u16)
     }
 
     /// Returns true if we should garbage-collect the shelves as a result of
-    /// removing this element (we deallocated the last item from the bin on
+    /// removing this element (we deallocated the last item from the bucket on
     /// the top-most shelf).
-    fn deallocate_from_bin(&mut self, id: AllocId) -> bool {
-        let bin_index = (id.0 & BIN_MASK) as usize;
+    fn deallocate_from_bucket(&mut self, id: AllocId) -> bool {
+        let bucket_index = (id.0 & BIN_MASK) as usize;
         let generation = ((id.0 & GEN_MASK) >> 24 ) as u8;
 
-        let bin = &mut self.bins[bin_index];
+        let bucket = &mut self.buckets[bucket_index];
 
-        let expected_generation = bin.generation.0;
+        let expected_generation = bucket.generation.0;
         assert_eq!(generation, expected_generation);
 
-        assert!(bin.refcount > 0);
-        bin.refcount -= 1;
+        assert!(bucket.refcount > 0);
+        bucket.refcount -= 1;
 
-        let shelf = &self.shelves[bin.shelf as usize];
+        let shelf = &self.shelves[bucket.shelf as usize];
 
-        let bin_is_empty = bin.refcount == 0;
-        if bin_is_empty {
-            bin.free_space = shelf.bin_width;
+        let bucket_is_empty = bucket.refcount == 0;
+        if bucket_is_empty {
+            bucket.free_space = shelf.bucket_width;
         }
 
-        bin_is_empty && bin.shelf as usize == self.shelves.len() - 1
+        bucket_is_empty && bucket.shelf as usize == self.shelves.len() - 1
     }
 
     fn cleanup_shelves(&mut self) {
         while self.shelves.len() > 0 {
             {
                 let shelf = self.shelves.last().unwrap();
-                let mut bin_index = shelf.first_bin;
-                let mut last_bin = shelf.first_bin;
+                let mut bucket_index = shelf.first_bucket;
+                let mut last_bucket = shelf.first_bucket;
 
-                while bin_index != BinIndex::INVALID {
-                    let bin = &self.bins[bin_index.to_usize()];
+                while bucket_index != BucketIndex::INVALID {
+                    let bucket = &self.buckets[bucket_index.to_usize()];
 
-                    if bin.refcount != 0 {
+                    if bucket.refcount != 0 {
                         return;
                     }
 
-                    last_bin = bin_index;
-                    bin_index = bin.next;
+                    last_bucket = bucket_index;
+                    bucket_index = bucket.next;
                 }
 
-                // We didn't run into any bin on this shelf with live elements,
+                // We didn't run into any bucket on this shelf with live elements,
                 // this means we can remove it.
 
-                // Can't have a shelf with no bins.
-                debug_assert!(last_bin != BinIndex::INVALID);
-                // Add the bins to the free list.
-                self.bins[last_bin.to_usize()].next = self.first_unallocated_bin;
-                self.first_unallocated_bin = shelf.first_bin;
+                // Can't have a shelf with no buckets.
+                debug_assert!(last_bucket != BucketIndex::INVALID);
+                // Add the buckets to the free list.
+                self.buckets[last_bucket.to_usize()].next = self.first_unallocated_bucket;
+                self.first_unallocated_bucket = shelf.first_bucket;
 
                 if shelf.y == 0 && self.current_column > 0 {
                     self.current_column -= 1;
                     let prev_shelf = &self.shelves[self.shelves.len() - 2];
                     self.available_height = self.height - (prev_shelf.y + prev_shelf.height);
                 } else {
-                    // Reclaim the height of the bin.
+                    // Reclaim the height of the bucket.
                     self.available_height += shelf.height;
                 }
             }
@@ -457,16 +457,16 @@ impl BucketedAtlasAllocator {
 
     fn shelf_is_empty(&self, idx: usize) -> bool {
         let shelf = &self.shelves[idx];
-        let mut bin_index = shelf.first_bin;
+        let mut bucket_index = shelf.first_bucket;
 
-        while bin_index != BinIndex::INVALID {
-            let bin = &self.bins[bin_index.to_usize()];
+        while bucket_index != BucketIndex::INVALID {
+            let bucket = &self.buckets[bucket_index.to_usize()];
 
-            if bin.refcount != 0 {
+            if bucket.refcount != 0 {
                 return false;
             }
 
-            bin_index = bin.next;
+            bucket_index = bucket.next;
         }
 
         true
@@ -519,15 +519,15 @@ impl BucketedAtlasAllocator {
 
 
         for shelf in &self.shelves {
-            let mut bin_index = shelf.first_bin;
+            let mut bucket_index = shelf.first_bucket;
 
             let y = shelf.y as f32 * sy;
             let h = shelf.height as f32 * sy;
-            while bin_index != BinIndex::INVALID {
-                let bin = &self.bins[bin_index.to_usize()];
+            while bucket_index != BucketIndex::INVALID {
+                let bucket = &self.buckets[bucket_index.to_usize()];
 
-                let x = bin.x as f32 * sx;
-                let w = (shelf.bin_width - bin.free_space) as f32 * sx;
+                let x = bucket.x as f32 * sx;
+                let w = (shelf.bucket_width - bucket.free_space) as f32 * sx;
 
                 {
                     let (x, y) = if self.flip_xy { (y, x) } else { (x, y) };
@@ -542,9 +542,9 @@ impl BucketedAtlasAllocator {
                     )?;
                 }
 
-                if bin.free_space > 0 {
+                if bucket.free_space > 0 {
                     let x_free = x + w;
-                    let w_free = bin.free_space as f32 * sx;
+                    let w_free = bucket.free_space as f32 * sx;
 
                     let (x_free, y) = if self.flip_xy { (y, x_free) } else { (x_free, y) };
                     let (w_free, h) = if self.flip_xy { (h, w_free) } else { (w_free, h) };
@@ -558,7 +558,7 @@ impl BucketedAtlasAllocator {
                     )?;
                 }
 
-                bin_index = bin.next;
+                bucket_index = bucket.next;
             }
         }
 
