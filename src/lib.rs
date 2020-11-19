@@ -1,12 +1,88 @@
+//! Dynamic texture atlas allocation using the shelf packing algorithm.
+//!
+//! ## Texture atlas allocation
+//!
+//! The goal of a texture atlas allocator is to pack multiple rectangles into a larger one.
+//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching. 
+//!
+//! This crate provides two implementations of the shelf packing algorithm for *dynamic*
+//! texture atlas allocation (dynamic here means supporting both allocation and deallocation).
+//!
+//! [A thousand ways to pack the bin](http://pds25.egloos.com/pds/201504/21/98/RectangleBinPack.pdf)
+//! is a good resource to learn about rectangle packing algorithms, although it does not not cover
+//! deallocation which complicates the problem space a fair bit.
+//!
+//! The shelf packing algorithm is explained in the above document. It isn't the most efficient
+//! packing strategy, however its simplicity makes it possible to support reasonably fast deallocation.
+//! Note that the [guillotiere](https://crates.io/crates/guillotiere) crate implements a similar API
+//! using the guillotine packing algorithm and may or may not provide better results depending on the
+//! type of workload.
+//!
+//! ## Two allocators
+//!
+//! - [`AtlasAllocator`] Tracks allocations for each individual item and does a reasonable
+//!   job of dealing with fragmentation, at a runtime cost.
+//! - [`BucketedAtlasAllocator`] groups items by buckets and only reclaim the space occupied
+//!   by a bucket when all of its items are deallocated. In addition, it has limited support
+//!   for merging consecutive empty shelves. These limitations allow faster allocation and
+//!   deallocation, making it an appealing option when the atlas is expected to hold a very
+//!   large amount of small items.
+//!
+//! Both allocators support:
+//! - Requiring an alignment for the items.
+//! - Packing into vertical shelves instead of horizontal ones (might provide a better output
+//!   for some workloads).
+//! - Splitting the allocator into multiple columns in order to make shelves smaller and allow
+//!   more of them.
+//! - Dumping the content of the atlas in SVG format for easy debugging.
+//!
+//! See [`AllocatorOptions`](struct.AllocatorOptions.html)
+//!
+//! In addition, this repository contains a command-line application to experiment with and
+//! test the implementations interactively.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use etagere::*;
+//!
+//! let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+//!
+//! let a = atlas.allocate(size2(100, 100)).unwrap();
+//! let b = atlas.allocate(size2(900, 200)).unwrap();
+//! println!("Allocated {:?} and {:?}", a.rectangle, b.rectangle);
+//!
+//! atlas.deallocate(a.id);
+//!
+//! let c = atlas.allocate(size2(300, 200)).unwrap();
+//!
+//! atlas.deallocate(c.id);
+//! atlas.deallocate(b.id);
+//! ```
+//!
+//! ## License
+//!
+//! Licensed under either of
+//!
+//!  * Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+//!  * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+//!
+//! at your option.
+//!
+//!
+//! [`AtlasAllocator`]: struct.AtlasAllocator.html
+//! [`BucketedAtlasAllocator`]: struct.BucketedAtlasAllocator.html
+
 #[cfg(feature = "serde")]
 #[macro_use]
 pub extern crate serde;
 pub extern crate euclid;
 
+mod bucketed;
 mod allocator;
-pub mod allocator2;
 
 pub use allocator::*;
+pub use bucketed::*;
 pub use euclid::{point2, size2};
 
 pub type Point = euclid::default::Point2D<i32>;
@@ -45,6 +121,7 @@ impl Default for AllocatorOptions {
     }
 }
 
+/// The `AllocId` and `Rectangle` resulting from an allocation.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
