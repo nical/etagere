@@ -123,6 +123,8 @@ impl BucketedAtlasAllocator {
         self.shelves.clear();
         self.buckets.clear();
         self.first_unallocated_bucket = BucketIndex::INVALID;
+        self.available_height = self.height;
+        self.current_column = 0;
     }
 
     pub fn size(&self) -> Size {
@@ -758,4 +760,93 @@ fn vertical() {
     atlas.deallocate(c.id);
 
     assert!(atlas.is_empty());
+}
+
+#[test]
+fn clear() {
+    let mut atlas = BucketedAtlasAllocator::new(size2(2048, 2048));
+
+    // Run a workload a few hundred times to make sure clearing properly resets everything.
+    for _ in 0..500 {
+        atlas.clear();
+
+        atlas.allocate(size2(8, 2)).unwrap();
+        atlas.allocate(size2(2, 8)).unwrap();
+        atlas.allocate(size2(16, 512)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(2, 8)).unwrap();
+        atlas.allocate(size2(2, 8)).unwrap();
+        atlas.allocate(size2(8, 2)).unwrap();
+        atlas.allocate(size2(2, 8)).unwrap();
+        atlas.allocate(size2(8, 2)).unwrap();
+        atlas.allocate(size2(8, 8)).unwrap();
+        atlas.allocate(size2(8, 8)).unwrap();
+        atlas.allocate(size2(8, 8)).unwrap();
+        atlas.allocate(size2(8, 8)).unwrap();
+        atlas.allocate(size2(82, 80)).unwrap();
+        atlas.allocate(size2(56, 56)).unwrap();
+        atlas.allocate(size2(64, 66)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(40, 40)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(155, 52)).unwrap();
+        atlas.allocate(size2(256, 52)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(24, 24)).unwrap();
+        atlas.allocate(size2(64, 64)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(84, 84)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(8, 2)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(34, 34)).unwrap();
+        atlas.allocate(size2(192, 192)).unwrap();
+        atlas.allocate(size2(192, 192)).unwrap();
+        atlas.allocate(size2(52, 52)).unwrap();
+        atlas.allocate(size2(144, 144)).unwrap();
+        atlas.allocate(size2(192, 192)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(144, 144)).unwrap();
+        atlas.allocate(size2(24, 24)).unwrap();
+        atlas.allocate(size2(192, 192)).unwrap();
+        atlas.allocate(size2(192, 192)).unwrap();
+        atlas.allocate(size2(432, 243)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+        atlas.allocate(size2(8, 2)).unwrap();
+        atlas.allocate(size2(2, 8)).unwrap();
+        atlas.allocate(size2(9, 9)).unwrap();
+        atlas.allocate(size2(14, 14)).unwrap();
+        atlas.allocate(size2(14, 14)).unwrap();
+        atlas.allocate(size2(14, 14)).unwrap();
+        atlas.allocate(size2(14, 14)).unwrap();
+        atlas.allocate(size2(8, 8)).unwrap();
+        atlas.allocate(size2(27, 27)).unwrap();
+        atlas.allocate(size2(27, 27)).unwrap();
+        atlas.allocate(size2(27, 27)).unwrap();
+        atlas.allocate(size2(27, 27)).unwrap();
+        atlas.allocate(size2(11, 12)).unwrap();
+        atlas.allocate(size2(29, 28)).unwrap();
+        atlas.allocate(size2(32, 32)).unwrap();
+    }
 }
