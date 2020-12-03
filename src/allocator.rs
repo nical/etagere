@@ -73,6 +73,7 @@ pub struct AtlasAllocator {
     free_items: ItemIndex,
     free_shelves: ShelfIndex,
     shelf_width: u16,
+    allocated_space: i32,
 }
 
 impl AtlasAllocator {
@@ -96,6 +97,7 @@ impl AtlasAllocator {
             free_items: ItemIndex::NONE,
             free_shelves: ShelfIndex::NONE,
             shelf_width: shelf_width as u16,
+            allocated_space: 0,
         };
 
         atlas.init();
@@ -157,6 +159,7 @@ impl AtlasAllocator {
         self.first_shelf = ShelfIndex(0);
         self.free_items = ItemIndex::NONE;
         self.free_shelves = ShelfIndex::NONE;
+        self.allocated_space = 0;
     }
 
     pub fn size(&self) -> Size {
@@ -177,7 +180,7 @@ impl AtlasAllocator {
         adjust_size(self.alignment.height, &mut size.height);
 
         let (width, height) = convert_coordinates(self.flip_xy, size.width as u16, size.height as u16);
-        let height = shelf_height(height);
+        let mut height = shelf_height(height);
 
         if width > self.shelf_width || height > self.size.height as u16 {
             return None;
@@ -262,6 +265,8 @@ impl AtlasAllocator {
             if next.is_some() {
                 self.shelves[next.index()].prev = new_shelf_idx;
             }
+        } else {
+            height = shelf.height;
         }
 
         let item = self.items[selected_item.index()].clone();
@@ -295,15 +300,18 @@ impl AtlasAllocator {
         let (x0, y0) = convert_coordinates(self.flip_xy, x0, y0);
         let (x1, y1) = convert_coordinates(self.flip_xy, x1, y1);
 
-        #[cfg(feature = "checks")]
         self.check();
+
+        let rectangle = Rectangle {
+            min: point2(x0 as i32, y0 as i32),
+            max: point2(x1 as i32, y1 as i32),
+        };
+
+        self.allocated_space += rectangle.area();
 
         Some(Allocation {
             id: AllocId(selected_item.0 as u32),
-            rectangle: Rectangle {
-                min: point2(x0 as i32, y0 as i32),
-                max: point2(x1 as i32, y1 as i32),
-            },
+            rectangle,
         })
     }
 
@@ -311,11 +319,12 @@ impl AtlasAllocator {
     pub fn deallocate(&mut self, id: AllocId) {
         let item_idx = ItemIndex(id.0 as u16);
 
-        let item = self.items[item_idx.index()].clone();
-        let Item { mut prev, mut next, mut width, allocated, .. } = self.items[item_idx.index()];
+        //let item = self.items[item_idx.index()].clone();
+        let Item { mut prev, mut next, mut width, allocated, shelf, .. } = self.items[item_idx.index()];
         assert!(allocated);
 
         self.items[item_idx.index()].allocated = false;
+        self.allocated_space -= width as i32 * self.shelves[shelf.index()].height as i32;
 
         if next.is_some() && !self.items[next.index()].allocated {
             // Merge the next item into this one.
@@ -354,7 +363,7 @@ impl AtlasAllocator {
         }
 
         if prev.is_none() && next.is_none() {
-            let shelf_idx = item.shelf;
+            let shelf_idx = shelf;
             // The shelf is now empty. 
             self.shelves[shelf_idx.index()].is_empty = true;
 
@@ -401,7 +410,6 @@ impl AtlasAllocator {
             }
         }
 
-        #[cfg(feature = "checks")]
         self.check();
     }
 
@@ -418,6 +426,16 @@ impl AtlasAllocator {
         }
 
         true
+    }
+
+    /// Amount of occupied space in the atlas.
+    pub fn allocated_space(&self) -> i32 {
+        self.allocated_space
+    }
+
+    /// How much space is available for future allocations.
+    pub fn free_space(&self) -> i32 {
+        self.size.area() - self.allocated_space
     }
 
     fn remove_item(&mut self, idx: ItemIndex) {
@@ -463,14 +481,11 @@ impl AtlasAllocator {
         idx
     }
 
+    #[cfg(not(feature = "checks"))]
+    fn check(&self) {}
+
     #[cfg(feature = "checks")]
     fn check(&self) {
-        let (target_w, target_h) = if self.flip_xy {
-            (self.size.height, self.shelf_width as i32)
-        } else {
-            (self.shelf_width as i32, self.size.height)
-        };
-
         let mut prev_empty = false;
         let mut accum_h = 0;
         let mut shelf_idx = self.first_shelf;
@@ -479,7 +494,7 @@ impl AtlasAllocator {
             let shelf = &self.shelves[shelf_idx.index()];
             let new_column = shelf_x != shelf.x;
             if new_column {
-                assert_eq!(accum_h as i32, target_h);
+                assert_eq!(accum_h as i32, self.size.height);
                 accum_h = 0;
             }
             shelf_x = shelf.x;
@@ -512,7 +527,7 @@ impl AtlasAllocator {
                 item_idx = item.next;
             }
 
-            assert_eq!(accum_w as i32, target_w);
+            assert_eq!(accum_w, self.shelf_width);
 
             shelf_idx = shelf.next;
         }
@@ -638,6 +653,7 @@ fn shelf_height(mut size: u16) -> u16 {
 fn test_simple() {
     let mut atlas = AtlasAllocator::new(size2(1000, 1000));
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 
     let a1 = atlas.allocate(size2(20, 30)).unwrap();
     let a2 = atlas.allocate(size2(30, 40)).unwrap();
@@ -654,6 +670,7 @@ fn test_simple() {
     atlas.deallocate(a3.id);
 
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 }
 
 #[test]
@@ -661,7 +678,7 @@ fn test_options() {
     let alignment = size2(8, 16);
 
     let mut atlas = AtlasAllocator::with_options(
-        size2(1000, 1000),
+        size2(2000, 1000),
         &AllocatorOptions {
             alignment,
             vertical_shelves: true,
@@ -669,6 +686,7 @@ fn test_options() {
         },
     );
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 
     let a1 = atlas.allocate(size2(20, 30)).unwrap();
     let a2 = atlas.allocate(size2(30, 40)).unwrap();
@@ -700,6 +718,7 @@ fn test_options() {
     atlas.deallocate(a3.id);
 
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 }
 
 #[test]
@@ -728,6 +747,7 @@ fn vertical() {
     atlas.deallocate(c.id);
 
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 }
 
 
@@ -738,6 +758,7 @@ fn clear() {
     // Run a workload a few hundred times to make sure clearing properly resets everything.
     for _ in 0..500 {
         atlas.clear();
+        assert_eq!(atlas.allocated_space(), 0);
 
         atlas.allocate(size2(8, 2)).unwrap();
         atlas.allocate(size2(2, 8)).unwrap();

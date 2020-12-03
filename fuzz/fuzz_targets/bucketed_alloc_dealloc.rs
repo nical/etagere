@@ -15,7 +15,7 @@ enum Evt {
 }
 
 fuzz_target!(|events: Vec<Evt>| {
-    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+    let mut atlas = BucketedAtlasAllocator::new(size2(1000, 1000));
     let mut allocations = Vec::new();
 
     for evt in &events {
