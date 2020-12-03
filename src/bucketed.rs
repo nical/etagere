@@ -82,6 +82,7 @@ pub struct BucketedAtlasAllocator {
     current_column: u16,
     column_width: u16,
     num_columns: u16,
+    allocated_space: i32,
 }
 
 impl BucketedAtlasAllocator {
@@ -111,6 +112,7 @@ impl BucketedAtlasAllocator {
             current_column: 0,
             num_columns: options.num_columns as u16,
             column_width,
+            allocated_space: 0,
         }
     }
 
@@ -125,6 +127,7 @@ impl BucketedAtlasAllocator {
         self.first_unallocated_bucket = BucketIndex::INVALID;
         self.available_height = self.height;
         self.current_column = 0;
+        self.allocated_space = 0;
     }
 
     pub fn size(&self) -> Size {
@@ -219,6 +222,18 @@ impl BucketedAtlasAllocator {
         if self.deallocate_from_bucket(id) {
             self.cleanup_shelves();
         }
+
+        self.check()
+    }
+
+    /// Amount of occupied space in the atlas.
+    pub fn allocated_space(&self) -> i32 {
+        self.allocated_space
+    }
+
+    /// How much space is available for future allocations.
+    pub fn free_space(&self) -> i32 {
+        (self.width * self.height) as i32 - self.allocated_space
     }
 
     fn alloc_from_bucket(&mut self, shelf_index: usize, bucket_index: BucketIndex, width: u16) -> Option<Allocation> {
@@ -249,6 +264,10 @@ impl BucketedAtlasAllocator {
             min: point2(min_x as i32, min_y as i32),
             max: point2(max_x as i32, max_y as i32),
         };
+
+        self.allocated_space += rectangle.size().area();
+
+        self.check();
 
         Some(Allocation { id, rectangle })
     }
@@ -410,6 +429,7 @@ impl BucketedAtlasAllocator {
 
         let bucket_is_empty = bucket.refcount == 0;
         if bucket_is_empty {
+            self.allocated_space -= (shelf.bucket_width - bucket.free_space) as i32 * shelf.height as i32;
             bucket.free_space = shelf.bucket_width;
         }
 
@@ -491,6 +511,26 @@ impl BucketedAtlasAllocator {
         self.dump_into_svg(None, output)?;
 
         writeln!(output, "{}", EndSvg)
+    }
+
+
+    #[cfg(not(feature = "checks"))]
+    fn check(&self) {}
+
+    #[cfg(feature = "checks")]
+    fn check(&self) {
+        let mut h = 0;
+        for shelf in &self.shelves {
+            h += shelf.height;
+        }
+        h += self.available_height;
+
+        // Total height must be a multiple of the actual height, up to height * num_columns.
+        assert_eq!(h % self.height, 0);
+        assert!(h <= self.height * self.num_columns);
+        assert!(h >= self.height);
+
+        assert_eq!(self.is_empty(), self.allocated_space() == 0)
     }
 
     /// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
@@ -608,7 +648,6 @@ fn atlas_basic() {
     assert!(atlas.allocate(size2(1, 1)).is_none());
 
     atlas.deallocate(full);
-
     let a = atlas.allocate(size2(10, 10)).unwrap().id;
     let b = atlas.allocate(size2(50, 30)).unwrap().id;
     let c = atlas.allocate(size2(12, 45)).unwrap().id;
@@ -686,6 +725,7 @@ fn test_coalesce_shelves() {
     //dump_svg(&atlas, &mut std::fs::File::create("tmp.svg").expect("!!"));
 
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 }
 
 #[test]
@@ -721,7 +761,7 @@ fn columns() {
     atlas.deallocate(a.id);
 
     assert!(atlas.is_empty());
-
+    assert_eq!(atlas.allocated_space(), 0);
 
     let a = atlas.allocate(size2(24, 46)).unwrap();
     let b = atlas.allocate(size2(24, 32)).unwrap();
@@ -760,6 +800,7 @@ fn vertical() {
     atlas.deallocate(c.id);
 
     assert!(atlas.is_empty());
+    assert_eq!(atlas.allocated_space(), 0);
 }
 
 #[test]
@@ -769,6 +810,7 @@ fn clear() {
     // Run a workload a few hundred times to make sure clearing properly resets everything.
     for _ in 0..500 {
         atlas.clear();
+        assert_eq!(atlas.allocated_space(), 0);
 
         atlas.allocate(size2(8, 2)).unwrap();
         atlas.allocate(size2(2, 8)).unwrap();
