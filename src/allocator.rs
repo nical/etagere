@@ -214,7 +214,7 @@ impl AtlasAllocator {
                 selected_shelf = shelf_idx;
                 selected_shelf_height = shelf.height;
                 selected_item = item_idx;
-    
+
                 if shelf.height == height {
                     // Perfect fit, stop searching.
                     break;
@@ -364,7 +364,7 @@ impl AtlasAllocator {
 
         if prev.is_none() && next.is_none() {
             let shelf_idx = shelf;
-            // The shelf is now empty. 
+            // The shelf is now empty.
             self.shelves[shelf_idx.index()].is_empty = true;
 
             // Only attempt to merge shelves on the same column.

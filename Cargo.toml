@@ -1,10 +1,14 @@
 [package]
 name = "etagere"
 description = "Dynamic 2D texture atlas allocation using the shelf packing algorithm."
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Nicolas Silva <nical@fastmail.com>"]
+repository = "https://github.com/nical/lyon"
+documentation = "https://docs.rs/etagere/"
 edition = "2018"
 license = "MIT/Apache-2.0"
+keywords = ["2d"]
+exclude = [".backup*"]
 
 [dependencies]
 euclid = "0.22"
