@@ -408,10 +408,9 @@ impl BucketedAtlasAllocator {
     fn num_buckets(&self, width: u16, height: u16) -> u16 {
         match self.column_width / u16::max(width, height) {
             0 ..= 4 => 1,
-            5 ..= 15 => 2,
-            16 ..= 64 => 4,
-            65 ..= 256 => 8,
-            _ => 16,
+            5 ..= 16 => 2,
+            17 ..= 32 => 4,
+            n => (n /16 - 1).next_power_of_two(),
         }.min((MAX_BIN_COUNT - self.buckets.len()) as u16)
     }
 
