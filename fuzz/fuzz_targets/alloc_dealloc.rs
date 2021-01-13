@@ -15,8 +15,16 @@ enum Evt {
 }
 
 fuzz_target!(|events: Vec<Evt>| {
-    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
-    let mut allocations = Vec::new();
+    let mut atlas = BucketedAtlasAllocator::with_options(
+        size2(2048, 2048),
+        &AllocatorOptions {
+            alignment: size2(4, 8),
+            vertical_shelves: false,
+            num_columns: 2,
+        },
+    );
+
+    let mut allocations: Vec<Allocation> = Vec::new();
 
     for evt in &events {
         match *evt {
@@ -24,20 +32,27 @@ fuzz_target!(|events: Vec<Evt>| {
                 if let Some(alloc) = atlas.allocate(size2(w, h)) {
                     assert!(alloc.rectangle.size().width >= w);
                     assert!(alloc.rectangle.size().height >= h);
-                    allocations.push(alloc.id);
+
+                    for previous in &allocations {
+                        assert!(!alloc.rectangle.intersects(&previous.rectangle));
+                    }
+
+                    allocations.push(alloc);
                 }
             }
             Evt::Dealloc(idx) => {
-                if idx < allocations.len() {
-                    atlas.deallocate(allocations[idx]);
+                if !allocations.is_empty() {
+                    let idx = idx % allocations.len();
+
+                    atlas.deallocate(allocations[idx].id);
                     allocations.swap_remove(idx);
                 }
             }
         }
     }
 
-    for id in allocations {
-        atlas.deallocate(id);
+    for alloc in allocations {
+        atlas.deallocate(alloc.id);
     }
 
     assert!(atlas.is_empty());
