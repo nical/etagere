@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://crates.io/crates/etagere">
-      <img src="http://meritbadge.herokuapp.com/etagere" alt="crates.io">
+      <img src="https://img.shields.io/crates/v/etagere.svg" alt="crates.io">
   </a>
   <a href="https://docs.rs/etagere">
       <img src="https://docs.rs/etagere/badge.svg" alt="documentation">
