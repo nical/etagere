@@ -450,6 +450,13 @@ impl AtlasAllocator {
         self.size.area() - self.allocated_space
     }
 
+    pub fn iter(&self) -> Iter {
+        Iter {
+            atlas: self,
+            idx: 0,
+        }
+    }
+
     fn remove_item(&mut self, idx: ItemIndex) {
         self.items[idx.index()].next = self.free_items;
         self.free_items = idx;
@@ -661,6 +668,63 @@ fn shelf_height(mut size: i32) -> i32 {
     size
 }
 
+/// Iterator over the allocations of an atlas.
+pub struct Iter<'l> {
+    atlas: &'l AtlasAllocator,
+    idx: usize,
+}
+
+impl<'l> Iterator for Iter<'l> {
+    type Item = Allocation;
+
+    fn next(&mut self) -> Option<Allocation> {
+        if self.idx >= self.atlas.items.len() {
+            return None;
+        }
+
+        while !self.atlas.items[self.idx].allocated {
+            self.idx += 1;
+            if self.idx >= self.atlas.items.len() {
+                return None;
+            }
+        }
+
+        let item = &self.atlas.items[self.idx];
+        let shelf = &self.atlas.shelves[item.shelf.index()];
+
+        let mut alloc = Allocation {
+            rectangle: Rectangle {
+                min: point2(
+                    item.x as i32,
+                    shelf.y as i32,
+                ),
+                max: point2(
+                    (item.x + item.width) as i32,
+                    (shelf.y + shelf.height) as i32,
+                ),
+            },
+            id: AllocId(self.idx as u32),
+        };
+
+        if self.atlas.flip_xy {
+            std::mem::swap(&mut alloc.rectangle.min.x, &mut alloc.rectangle.min.y);
+            std::mem::swap(&mut alloc.rectangle.max.x, &mut alloc.rectangle.max.y);
+        }
+
+        self.idx += 1;
+
+        Some(alloc)
+    }
+}
+
+impl<'l> std::iter::IntoIterator for &'l AtlasAllocator {
+    type Item = Allocation;
+    type IntoIter = Iter<'l>;
+    fn into_iter(self) -> Iter<'l> {
+        self.iter()
+    }
+}
+
 #[test]
 fn test_simple() {
     let mut atlas = AtlasAllocator::with_options(
@@ -716,6 +780,10 @@ fn test_options() {
     assert!(a1.id != a3.id);
     assert!(!atlas.is_empty());
 
+    for id in &atlas {
+        assert!(id == a1 || id == a2 || id == a3);
+    }
+
     assert_eq!(a1.rectangle.min.x % alignment.width, 0);
     assert_eq!(a1.rectangle.min.y % alignment.height, 0);
     assert_eq!(a2.rectangle.min.x % alignment.width, 0);
@@ -762,9 +830,13 @@ fn vertical() {
 
     let c = atlas.allocate(size2(128, 128)).unwrap();
 
+    for _ in &atlas {}
+
     atlas.deallocate(a.id);
     atlas.deallocate(b.id);
     atlas.deallocate(c.id);
+
+    for _ in &atlas {}
 
     assert!(atlas.is_empty());
     assert_eq!(atlas.allocated_space(), 0);
@@ -858,6 +930,8 @@ fn clear() {
         atlas.allocate(size2(11, 12)).unwrap();
         atlas.allocate(size2(29, 28)).unwrap();
         atlas.allocate(size2(32, 32)).unwrap();
+
+        for _ in &atlas {}
     }
 }
 
