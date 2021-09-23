@@ -54,6 +54,7 @@ struct Item {
     next: ItemIndex,
     shelf: ShelfIndex,
     allocated: bool,
+    generation: u16,
 }
 
 // Note: if allocating is slow we can use the guillotiere trick of storing multiple lists of free
@@ -156,6 +157,7 @@ impl AtlasAllocator {
                 next: ItemIndex::NONE,
                 shelf: current,
                 allocated: false,
+                generation: 1,
             });
 
             prev = current;
@@ -264,6 +266,7 @@ impl AtlasAllocator {
                 next: ItemIndex::NONE,
                 shelf: new_shelf_idx,
                 allocated: false,
+                generation: 1,
             });
 
             self.shelves[new_shelf_idx.index()].first_item = new_item_idx;
@@ -290,6 +293,7 @@ impl AtlasAllocator {
                 next: item.next,
                 shelf: item.shelf,
                 allocated: false,
+                generation: 1,
             });
 
             self.items[selected_item.index()].width = width;
@@ -303,6 +307,7 @@ impl AtlasAllocator {
         }
 
         self.items[selected_item.index()].allocated = true;
+        let generation = self.items[selected_item.index()].generation;
 
         let x0 = item.x;
         let y0 = shelf.y;
@@ -322,18 +327,19 @@ impl AtlasAllocator {
         self.allocated_space += rectangle.area();
 
         Some(Allocation {
-            id: AllocId(selected_item.0 as u32),
+            id: AllocId::new(selected_item.0, generation),
             rectangle,
         })
     }
 
     /// Deallocate a rectangle in the atlas.
     pub fn deallocate(&mut self, id: AllocId) {
-        let item_idx = ItemIndex(id.0 as u16);
+        let item_idx = ItemIndex(id.index());
 
         //let item = self.items[item_idx.index()].clone();
-        let Item { mut prev, mut next, mut width, allocated, shelf, .. } = self.items[item_idx.index()];
+        let Item { mut prev, mut next, mut width, allocated, shelf, generation, .. } = self.items[item_idx.index()];
         assert!(allocated);
+        assert_eq!(generation, id.generation(), "Invalid AllocId");
 
         self.items[item_idx.index()].allocated = false;
         self.allocated_space -= width as i32 * self.shelves[shelf.index()].height as i32;
@@ -470,9 +476,10 @@ impl AtlasAllocator {
         self.free_shelves = idx;
     }
 
-    fn add_item(&mut self, item: Item) -> ItemIndex {
+    fn add_item(&mut self, mut item: Item) -> ItemIndex {
         if self.free_items.is_some() {
             let idx = self.free_items;
+            item.generation = self.items[idx.index()].generation.wrapping_add(1);
             self.free_items = self.items[idx.index()].next;
             self.items[idx.index()] = item;
 
@@ -703,7 +710,7 @@ impl<'l> Iterator for Iter<'l> {
                     (shelf.y + shelf.height) as i32,
                 ),
             },
-            id: AllocId(self.idx as u32),
+            id: AllocId::new(self.idx as u16, item.generation),
         };
 
         if self.atlas.flip_xy {
