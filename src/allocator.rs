@@ -559,6 +559,25 @@ impl AtlasAllocator {
         }
     }
 
+    /// Turn a valid AllocId into an index that can be used as a key for external storage.
+    ///
+    /// The allocator internally stores all items in a single vector. In addition allocations
+    /// stay at the same index in the vector until they are deallocated. As a result the index
+    /// of an item can be used as a key for external storage using vectors. Note that:
+    ///  - The provided ID must correspond to an item that is currently allocated in the atlas.
+    ///  - After an item is deallocated, its index may be reused by a future allocation, so
+    ///    the returned index should only be considered valid during the lifetime of the its
+    ///    associated item.
+    ///  - indices are expected to be "reasonable" with respect to the number of allocated items,
+    ///    in other words it is never larger than the maximum number of allocated items in the
+    ///    atlas (making it a good fit for indexing within a sparsely populated vector).
+    pub fn get_index(&self, id: AllocId) -> u32 {
+        let index = id.index();
+        debug_assert_eq!(self.items[index as usize].generation, id.generation());
+
+        index as u32
+    }
+
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
