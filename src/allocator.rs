@@ -578,6 +578,7 @@ impl AtlasAllocator {
         index as u32
     }
 
+    #[cfg(feature = "svg")]
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
@@ -596,6 +597,7 @@ impl AtlasAllocator {
         writeln!(output, "{}", EndSvg)
     }
 
+    #[cfg(feature = "svg")]
     /// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
     /// SVG document, so that it can be included in a larger document.
     ///

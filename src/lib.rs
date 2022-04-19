@@ -3,7 +3,7 @@
 //! ## Texture atlas allocation
 //!
 //! The goal of a texture atlas allocator is to pack multiple rectangles into a larger one.
-//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching. 
+//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching.
 //!
 //! This crate provides two implementations of the shelf packing algorithm for *dynamic*
 //! texture atlas allocation (dynamic here means supporting both allocation and deallocation).
@@ -34,7 +34,7 @@
 //!   for some workloads).
 //! - Splitting the allocator into multiple columns in order to make shelves smaller and allow
 //!   more of them.
-//! - Dumping the content of the atlas in SVG format for easy debugging.
+//! - Dumping the content of the atlas in SVG format for easy debugging (using the `svg` feature).
 //!
 //! See [`AllocatorOptions`](struct.AllocatorOptions.html)
 //!

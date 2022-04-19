@@ -499,6 +499,7 @@ impl BucketedAtlasAllocator {
     }
 
 
+    #[cfg(feature = "svg")]
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
@@ -537,6 +538,7 @@ impl BucketedAtlasAllocator {
         assert_eq!(self.is_empty(), self.allocated_space() == 0)
     }
 
+    #[cfg(feature = "svg")]
     /// Dump a visual representation of the atlas in SVG, omitting the beginning and end of the
     /// SVG document, so that it can be included in a larger document.
     ///
