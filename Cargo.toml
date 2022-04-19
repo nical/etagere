@@ -23,5 +23,5 @@ checks = []
 members = ["cli"]
 
 # Uncomment this when profiling.
-[profile.release]
-debug = true
+# [profile.release]
+# debug = true
