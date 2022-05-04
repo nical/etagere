@@ -189,11 +189,12 @@ impl AtlasAllocator {
         adjust_size(self.alignment.height, &mut size.height);
 
         let (width, height) = convert_coordinates(self.flip_xy, size.width, size.height);
-        let height = shelf_height(height);
 
         if width > self.shelf_width as i32 || height > self.size.height {
             return None;
         }
+
+        let height = shelf_height(height, self.size.height);
 
         let mut width = width as u16;
         let mut height = height as u16;
@@ -709,7 +710,7 @@ fn convert_coordinates(flip_xy: bool, x: i32, y: i32) -> (i32, i32) {
     }
 }
 
-fn shelf_height(mut size: i32) -> i32 {
+fn shelf_height(size: i32, atlas_height: i32) -> i32 {
     let alignment = match size {
         0 ..= 31 => 8,
         32 ..= 127 => 16,
@@ -717,12 +718,16 @@ fn shelf_height(mut size: i32) -> i32 {
         _ => 64,
     };
 
+    let mut adjusted_size = size;
     let rem = size % alignment;
     if rem > 0 {
-        size += alignment - rem;
+        adjusted_size = size + alignment - rem;
+        if adjusted_size > atlas_height {
+            adjusted_size = size;
+        }
     }
 
-    size
+    adjusted_size
 }
 
 /// Iterator over the allocations of an atlas.
@@ -1081,7 +1086,7 @@ fn fuzz_04() {
 }
 
 #[test]
-fn issue_17() {
+fn issue_17_1() {
     let mut atlas = AtlasAllocator::new(size2(1024, 1024));
 
     let a = atlas.allocate(size2(100, 300)).unwrap();
@@ -1099,4 +1104,17 @@ fn issue_17() {
 
     atlas.deallocate(c.id);
     atlas.deallocate(b.id);
+}
+
+#[test]
+fn issue_17_2() {
+    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+
+    assert!(atlas.allocate(size2(100, 1001)).is_none());
+    assert!(atlas.allocate(size2(1001, 1000)).is_none());
+    let a = atlas.allocate(size2(1000, 1000)).unwrap();
+
+    assert_eq!(a.rectangle, atlas.get(a.id));
+
+    atlas.deallocate(a.id);
 }
