@@ -578,6 +578,37 @@ impl AtlasAllocator {
         index as u32
     }
 
+    /// Returns the allocation info associated to the allocation ID.
+    ///
+    /// The id must correspond to an existing allocation in the atlas.
+    pub fn get(&self, id: AllocId) -> Rectangle {
+        let index = id.index()as usize;
+        let item = &self.items[index];
+
+        assert!(item.allocated);
+        assert_eq!(item.generation, id.generation(), "Invalid AllocId");
+
+        let shelf = &self.shelves[item.shelf.index()];
+
+        let mut rectangle = Rectangle {
+            min: point2(
+                item.x as i32,
+                shelf.y as i32,
+            ),
+            max: point2(
+                (item.x + item.width) as i32,
+                (shelf.y + shelf.height) as i32,
+            ),
+        };
+
+        if self.flip_xy {
+            std::mem::swap(&mut rectangle.min.x, &mut rectangle.min.y);
+            std::mem::swap(&mut rectangle.max.x, &mut rectangle.max.y);
+        }
+
+        rectangle
+    }
+
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
@@ -1047,4 +1078,25 @@ fn fuzz_04() {
     let mut atlas = AtlasAllocator::new(size2(1000, 1000));
 
     assert!(atlas.allocate(size2(2560, 2147483647)).is_none());
+}
+
+#[test]
+fn issue_17() {
+    let mut atlas = AtlasAllocator::new(size2(1024, 1024));
+
+    let a = atlas.allocate(size2(100, 300)).unwrap();
+    let b = atlas.allocate(size2(500, 200)).unwrap();
+
+    assert_eq!(a.rectangle, atlas.get(a.id));
+    assert_eq!(b.rectangle, atlas.get(b.id));
+
+    atlas.deallocate(a.id);
+
+    let c = atlas.allocate(size2(300, 200)).unwrap();
+
+    assert_eq!(b.rectangle, atlas.get(b.id));
+    assert_eq!(c.rectangle, atlas.get(c.id));
+
+    atlas.deallocate(c.id);
+    atlas.deallocate(b.id);
 }
