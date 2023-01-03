@@ -235,7 +235,7 @@ impl BucketedAtlasAllocator {
 
     /// How much space is available for future allocations.
     pub fn free_space(&self) -> i32 {
-        (self.width * self.height) as i32 - self.allocated_space
+        (self.width as i32 * self.height as i32) - self.allocated_space
     }
 
     fn alloc_from_bucket(&mut self, shelf_index: usize, bucket_index: BucketIndex, width: u16) -> Option<Allocation> {
