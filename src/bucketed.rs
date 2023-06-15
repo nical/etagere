@@ -135,6 +135,25 @@ impl BucketedAtlasAllocator {
         size2(w as i32, h as i32)
     }
 
+    pub fn grow(&mut self, new_size: Size) {
+        assert!(new_size.width < u16::MAX as i32);
+        assert!(new_size.height < u16::MAX as i32);
+
+        let (new_width, new_height) = if self.flip_xy {
+            (new_size.height as u16, new_size.width as u16)
+        } else {
+            (new_size.width as u16, new_size.height as u16)
+        };
+
+        assert!(new_width >= self.width);
+        assert!(new_height >= self.height);
+
+        self.available_height += new_height - self.height;
+        self.width = new_width;
+        self.height = new_height;
+        self.num_columns = self.width / self.column_width;
+    }
+
     pub fn is_empty(&self) -> bool {
         self.shelves.is_empty()
     }
@@ -722,6 +741,72 @@ fn test_coalesce_shelves() {
 
     assert!(atlas.is_empty());
     assert_eq!(atlas.allocated_space(), 0);
+}
+
+#[test]
+fn grow_vertically() {
+    let mut atlas = BucketedAtlasAllocator::new(size2(256, 256));
+
+    // Allocate 7 shelves (leaving 32px of remaining space on top).
+    let mut ids = Vec::new();
+    for _ in 0..7 {
+        for _ in 0..8 {
+            ids.push(atlas.allocate(size2(32, 32)).unwrap().id)
+        }
+    }
+
+    // Free the first shelf.
+    for i in 0..8 {
+        atlas.deallocate(ids[i]);
+    }
+
+    // Free the 3rd and 4th shelf.
+    for i in 16..32 {
+        atlas.deallocate(ids[i]);
+    }
+
+    // Not enough space left in existing shelves and above.
+    // even coalescing is not sufficient.
+    assert!(atlas.allocate(size2(70, 70)).is_none());
+
+    // Grow just enough vertically to fit the previous region
+    atlas.grow(size2(256, 256 + 70 - 32));
+
+    // Allocation should succeed now
+    assert!(atlas.allocate(size2(70, 70)).is_some());
+}
+
+#[test]
+fn grow_horizontally() {
+    let mut atlas = BucketedAtlasAllocator::new(size2(256, 256));
+
+    // Allocate 7 shelves (leaving 32px of remaining space on top).
+    let mut ids = Vec::new();
+    for _ in 0..7 {
+        for _ in 0..8 {
+            ids.push(atlas.allocate(size2(32, 32)).unwrap().id)
+        }
+    }
+
+    // Free the first shelf.
+    for i in 0..8 {
+        atlas.deallocate(ids[i]);
+    }
+
+    // Free the 3rd and 4th shelf.
+    for i in 16..32 {
+        atlas.deallocate(ids[i]);
+    }
+
+    // Not enough space left in existing shelves and above.
+    // even coalescing is not sufficient.
+    assert!(atlas.allocate(size2(70, 70)).is_none());
+
+    // Grow just enough horizontally to have one more column
+    atlas.grow(size2(256 * 2, 256));
+
+    // Allocation should succeed now
+    assert!(atlas.allocate(size2(70, 70)).is_some());
 }
 
 #[test]
