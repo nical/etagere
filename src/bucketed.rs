@@ -164,11 +164,10 @@ impl BucketedAtlasAllocator {
                 let bucket_width = shelf.bucket_width;
 
                 let max_new_buckets = (MAX_BIN_COUNT - self.buckets.len()) as u16;
-                let last_bucket_on_shelf = BucketIndex(((self.column_width / bucket_width) as u16).saturating_sub(1));
                 let mut num_buckets_to_add = additional_width / bucket_width;
                 num_buckets_to_add = num_buckets_to_add.min(max_new_buckets);
 
-                let mut bucket_next = last_bucket_on_shelf;
+                let mut bucket_next = shelf.first_bucket;
 
                 for _ in 0..num_buckets_to_add {
                     let bucket = Bucket {
