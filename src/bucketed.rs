@@ -850,13 +850,13 @@ fn grow_horizontally() {
 
     // Not enough space left in existing shelves and above.
     // even coalescing is not sufficient.
-    assert!(atlas.allocate(size2(70, 70)).is_none());
+    assert!(atlas.allocate(size2(512, 32)).is_none());
 
     // Grow just enough horizontally to add more buckets
     atlas.grow(size2(256 * 2, 256));
 
     // Allocation should succeed now
-    assert!(atlas.allocate(size2(70, 70)).is_some());
+    assert!(atlas.allocate(size2(512, 32)).is_some());
 }
 
 #[test]
