@@ -3,7 +3,7 @@
 //! ## Texture atlas allocation
 //!
 //! The goal of a texture atlas allocator is to pack multiple rectangles into a larger one.
-//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching. 
+//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching.
 //!
 //! This crate provides two implementations of the shelf packing algorithm for *dynamic*
 //! texture atlas allocation (dynamic here means supporting both allocation and deallocation).
@@ -130,6 +130,22 @@ pub struct Allocation {
     pub rectangle: Rectangle,
 }
 
+const ITEMS_MASK: u32      = 0b00000000_00000000_00011111_11111111;
+const SHELVES_MASK: u32    = 0b00000011_11111111_11100000_00000000;
+const GEN_MASK: u32        = 0b11111100_00000000_00000000_00000000;
+
+const ITEMS_BITS: u32 = 13;
+const SHELVES_BITS: u32 = 13;
+const GEN_BITS: u32 = 6;
+const GEN_OFFSET: u32 = ITEMS_BITS + SHELVES_BITS;
+
+pub(crate) const INVALID_ITEM: u16 = !(std::u16::MAX << ITEMS_BITS as u16);
+pub(crate) const INVALID_SHELF: u16 = !(std::u16::MAX << ITEMS_BITS as u16);
+pub(crate) const MAX_GENERATION: u16 = !(std::u16::MAX << GEN_BITS as u16);
+
+pub(crate) const MAX_ITEMS_PER_SHELVES: u16 = INVALID_ITEM;
+pub(crate) const MAX_SHELVES: u16 = INVALID_SHELF;
+
 /// ID referring to an allocated rectangle.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -138,18 +154,29 @@ pub struct AllocId(pub(crate) u32);
 
 impl AllocId {
     #[inline]
-    pub(crate) fn new(index: u16, gen: u16) -> Self {
-        AllocId(index as u32 | ((gen as u32) << 16))
+    pub(crate) fn new(shelf: u16, index: u16, gen: u16) -> Self {
+        debug_assert!(shelf < MAX_SHELVES);
+        debug_assert!(index < MAX_ITEMS_PER_SHELVES);
+        debug_assert!(gen < MAX_GENERATION);
+        AllocId(
+            index as u32
+            | ((shelf as u32) << ITEMS_BITS)
+            | ((gen as u32) << GEN_OFFSET))
     }
 
     #[inline]
     pub(crate) fn index(&self) -> u16 {
-        self.0 as u16
+        (self.0 & ITEMS_MASK) as u16
+    }
+
+    #[inline]
+    pub(crate) fn shelf(&self) -> u16 {
+        ((self.0 & SHELVES_MASK) >> ITEMS_BITS) as u16
     }
 
     #[inline]
     pub(crate) fn generation(&self) -> u16 {
-        (self.0 >> 16) as u16
+        ((self.0 & GEN_MASK) >> GEN_OFFSET) as u16
     }
 
     #[inline]
