@@ -17,6 +17,7 @@ serde = { version = "1.0", optional = true }
 
 [features]
 serialization = ["serde", "euclid/serde"]
+ffi = []
 checks = []
 
 [workspace]
