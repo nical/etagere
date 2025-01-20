@@ -27,7 +27,7 @@ use etagere::*;
 
 let mut atlas = AtlasAllocator::new(size2(1000, 1000));
 
-let a = atlas.allocate(size2(100, 1000)).unwrap();
+let a = atlas.allocate(size2(100, 100)).unwrap();
 let b = atlas.allocate(size2(900, 200)).unwrap();
 
 atlas.deallocate(a.id);
@@ -48,4 +48,3 @@ Licensed under either of
  * MIT license ([LICENSE-MIT](LICENSE-MIT) or https://opensource.org/licenses/MIT)
 
 at your option.
-

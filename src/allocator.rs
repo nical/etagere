@@ -213,8 +213,7 @@ impl AtlasAllocator {
             let shelf = &self.shelves[shelf_idx.index()];
 
             if shelf.height < height
-                || shelf.height >= selected_shelf_height
-                || (!shelf.is_empty && shelf.height > height + height / 2) {
+                || shelf.height >= selected_shelf_height {
                 shelf_idx = shelf.next;
                 continue;
             }
@@ -619,7 +618,7 @@ impl AtlasAllocator {
             assert_eq!(accum_w, self.shelf_width);
 
             // Traverse the shelf's unallocated list, validate it and check that it matches
-            // the amount of unallocated space we found from traversing the whole shelf. 
+            // the amount of unallocated space we found from traversing the whole shelf.
             accum_w = 0;
             let mut item_idx = shelf.first_unallocated;
             let mut prev_unallocated_idx = ItemIndex::NONE;
@@ -1197,4 +1196,19 @@ fn issue_17_2() {
     assert_eq!(a.rectangle, atlas.get(a.id));
 
     atlas.deallocate(a.id);
+}
+
+#[test]
+fn issue_35() {
+    let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+    // This creates a shelf that takes the entire height of the
+    // atlas.
+    let a = atlas.allocate(size2(100, 1000)).unwrap();
+    // The atlas's ony shelf would be a poor fit because the height
+    // is 5 times larger than the allocation, but it is the only
+    // one so the allocator should take it and manage to allocate.
+    let b = atlas.allocate(size2(900, 200)).unwrap();
+
+    atlas.deallocate(a.id);
+    atlas.deallocate(b.id);
 }
