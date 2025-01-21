@@ -205,6 +205,10 @@ impl AtlasAllocator {
         let mut width = width as u16;
         let mut height = height as u16;
 
+        // Shelves that are taller than this threshold are not considered
+        // unless they are empty (since they can bit vertically split) or
+        // if we haven't found a good candidate.
+        let bad_fit_threshold = height.saturating_add(height / 2);
         let mut selected_shelf_height = std::u16::MAX;
         let mut selected_shelf = ShelfIndex::NONE;
         let mut selected_item = ItemIndex::NONE;
@@ -214,6 +218,18 @@ impl AtlasAllocator {
 
             if shelf.height < height
                 || shelf.height >= selected_shelf_height {
+                shelf_idx = shelf.next;
+                continue;
+            }
+
+            let bad_fit = !shelf.is_empty && shelf.height > bad_fit_threshold;
+            if bad_fit && selected_shelf.is_some() {
+                // Poor fit. We can't split this shelf vertically and there's a
+                // lot of wasted vertical space). Only consider this one if we
+                // haven't found any other candidate so far.
+                // The current implementation only considers the first bad fit
+                // instead of searching for the "best bad" fit. That's not ideal
+                // but it is simple/fast and hopefully good enough.
                 shelf_idx = shelf.next;
                 continue;
             }
@@ -230,8 +246,13 @@ impl AtlasAllocator {
 
             if item_idx.is_some() {
                 selected_shelf = shelf_idx;
-                selected_shelf_height = shelf.height;
                 selected_item = item_idx;
+                if !bad_fit {
+                    // Only set the selected height for good fits to avoid
+                    // situations where a tall used shelf is selected over
+                    // a taller empty shelf.
+                    selected_shelf_height = shelf.height;
+                }
 
                 if shelf.height == height {
                     // Perfect fit, stop searching.
@@ -1211,4 +1232,33 @@ fn issue_35() {
 
     atlas.deallocate(a.id);
     atlas.deallocate(b.id);
+}
+
+#[test]
+fn bad_fit() {
+    // Allocate items with heights that are far appart and enough vertical
+    // space in the atlas. All three allocations should end up in their own
+    // shelf.
+    let a = size2(100, 300);
+    let b = size2(100, 100);
+    let c = size2(100, 30);
+    // Try multiple permutations of the allocation order.
+    for (s1, s2, s3) in [(a, b, c), (c, b, a), (a, c, b), (c, a, b), (b, a, c), (b, c, a)] {
+        let mut atlas = AtlasAllocator::new(size2(1000, 1000));
+
+        let a1 = atlas.allocate(s1).unwrap();
+        let a2 = atlas.allocate(s2).unwrap();
+        let a3 = atlas.allocate(s3).unwrap();
+
+        assert!(a1.rectangle.min.y != a2.rectangle.min.y);
+        assert!(a2.rectangle.min.y != a3.rectangle.min.y);
+        assert!(a1.rectangle.min.y != a3.rectangle.min.y);
+        assert!(a1.rectangle.max.y != a2.rectangle.max.y);
+        assert!(a2.rectangle.max.y != a3.rectangle.max.y);
+        assert!(a1.rectangle.max.y != a3.rectangle.max.y);
+
+        atlas.deallocate(a1.id);
+        atlas.deallocate(a2.id);
+        atlas.deallocate(a3.id);
+    }
 }
