@@ -1,4 +1,5 @@
 use crate::{AllocId, Allocation, AllocatorOptions, DEFAULT_OPTIONS, Size, Rectangle, point2, size2};
+use alloc::vec::Vec;
 
 const SHELF_SPLIT_THRESHOLD: u16 = 8;
 const ITEM_SPLIT_THRESHOLD: u16 = 8;
@@ -9,13 +10,13 @@ const ITEM_SPLIT_THRESHOLD: u16 = 8;
 struct ShelfIndex(u16);
 
 impl ShelfIndex {
-    const NONE: Self = ShelfIndex(std::u16::MAX);
+    const NONE: Self = ShelfIndex(core::u16::MAX);
 
     fn index(self) -> usize { self.0 as usize }
 
-    fn is_some(self) -> bool { self.0 != std::u16::MAX }
+    fn is_some(self) -> bool { self.0 != core::u16::MAX }
 
-    fn is_none(self) -> bool { self.0 == std::u16::MAX }
+    fn is_none(self) -> bool { self.0 == core::u16::MAX }
 }
 
 #[repr(transparent)]
@@ -24,13 +25,13 @@ impl ShelfIndex {
 struct ItemIndex(u16);
 
 impl ItemIndex {
-    const NONE: Self = ItemIndex(std::u16::MAX);
+    const NONE: Self = ItemIndex(core::u16::MAX);
 
     fn index(self) -> usize { self.0 as usize }
 
-    fn is_some(self) -> bool { self.0 != std::u16::MAX }
+    fn is_some(self) -> bool { self.0 != core::u16::MAX }
 
-    fn is_none(self) -> bool { self.0 == std::u16::MAX }
+    fn is_none(self) -> bool { self.0 == core::u16::MAX }
 }
 
 #[derive(Clone)]
@@ -121,8 +122,8 @@ impl AtlasAllocator {
     fn init(&mut self) {
         assert!(self.size.width > 0);
         assert!(self.size.height > 0);
-        assert!(self.size.width <= std::u16::MAX as i32);
-        assert!(self.size.height <= std::u16::MAX as i32);
+        assert!(self.size.width <= core::u16::MAX as i32);
+        assert!(self.size.height <= core::u16::MAX as i32);
         assert!(
             self.size.width.checked_mul(self.size.height).is_some(),
             "The area of the atlas must fit in a i32 value"
@@ -186,8 +187,8 @@ impl AtlasAllocator {
     /// Allocate a rectangle in the atlas.
     pub fn allocate(&mut self, mut size: Size) -> Option<Allocation> {
         if size.is_empty()
-            || size.width > std::u16::MAX as i32
-            || size.height > std::u16::MAX as i32 {
+            || size.width > core::u16::MAX as i32
+            || size.height > core::u16::MAX as i32 {
             return None;
         }
 
@@ -209,7 +210,7 @@ impl AtlasAllocator {
         // unless they are empty (since they can bit vertically split) or
         // if we haven't found a good candidate.
         let bad_fit_threshold = height.saturating_add(height / 2);
-        let mut selected_shelf_height = std::u16::MAX;
+        let mut selected_shelf_height = core::u16::MAX;
         let mut selected_shelf = ShelfIndex::NONE;
         let mut selected_item = ItemIndex::NONE;
         let mut shelf_idx = self.first_shelf;
@@ -703,13 +704,14 @@ impl AtlasAllocator {
         };
 
         if self.flip_xy {
-            std::mem::swap(&mut rectangle.min.x, &mut rectangle.min.y);
-            std::mem::swap(&mut rectangle.max.x, &mut rectangle.max.y);
+            core::mem::swap(&mut rectangle.min.x, &mut rectangle.min.y);
+            core::mem::swap(&mut rectangle.max.x, &mut rectangle.max.y);
         }
 
         rectangle
     }
 
+    #[cfg(feature = "std")]
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
@@ -732,6 +734,7 @@ impl AtlasAllocator {
     /// SVG document, so that it can be included in a larger document.
     ///
     /// If a rectangle is provided, translate and scale the output to fit it.
+    #[cfg(feature = "std")]
     pub fn dump_into_svg(&self, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
 
@@ -869,8 +872,8 @@ impl<'l> Iterator for Iter<'l> {
         };
 
         if self.atlas.flip_xy {
-            std::mem::swap(&mut alloc.rectangle.min.x, &mut alloc.rectangle.min.y);
-            std::mem::swap(&mut alloc.rectangle.max.x, &mut alloc.rectangle.max.y);
+            core::mem::swap(&mut alloc.rectangle.min.x, &mut alloc.rectangle.min.y);
+            core::mem::swap(&mut alloc.rectangle.max.x, &mut alloc.rectangle.max.y);
         }
 
         self.idx += 1;
@@ -879,7 +882,7 @@ impl<'l> Iterator for Iter<'l> {
     }
 }
 
-impl<'l> std::iter::IntoIterator for &'l AtlasAllocator {
+impl<'l> core::iter::IntoIterator for &'l AtlasAllocator {
     type Item = Allocation;
     type IntoIter = Iter<'l>;
     fn into_iter(self) -> Iter<'l> {
@@ -909,7 +912,7 @@ fn test_simple() {
     assert!(a1.id != a3.id);
     assert!(!atlas.is_empty());
 
-    //atlas.dump_svg(&mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
+    //atlas.dump_svg(&mut core::fs::File::create("tmp.svg").expect("!!")).unwrap();
 
     atlas.deallocate(a1.id);
     atlas.deallocate(a2.id);
@@ -961,7 +964,7 @@ fn test_options() {
     assert!(a3.rectangle.size().height >= 30);
 
 
-    //atlas.dump_svg(&mut std::fs::File::create("tmp.svg").expect("!!")).unwrap();
+    //atlas.dump_svg(&mut core::fs::File::create("tmp.svg").expect("!!")).unwrap();
 
     atlas.deallocate(a1.id);
     atlas.deallocate(a2.id);
@@ -1123,7 +1126,7 @@ fn fuzz_01() {
 
     // Because of potential alignment we won't necessarily
     // succeed at allocation something this big
-    let s = std::u16::MAX as i32;
+    let s = core::u16::MAX as i32;
 
     let mut atlas = AtlasAllocator::new(size2(s, 64));
     if let Some(alloc) = atlas.allocate(size2(s, 64)) {

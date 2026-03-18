@@ -11,13 +11,14 @@ keywords = ["2d"]
 exclude = [".backup*"]
 
 [dependencies]
-euclid = "0.22"
-svg_fmt = "0.4"
+euclid = { version = "0.22.14", default-features = false }
+svg_fmt = { version = "0.4.5", optional = true }
 serde = { version = "1.0", optional = true }
 
 [features]
-serialization = ["serde", "euclid/serde"]
+std = ["svg_fmt"]
 ffi = []
+serialization = ["serde", "euclid/serde"]
 checks = []
 
 [workspace]

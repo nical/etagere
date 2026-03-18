@@ -1,5 +1,5 @@
 use crate::{AtlasAllocator, size2};
-use std::os::raw::c_char;
+use alloc::boxed::Box;
 
 /// 1 means OK, 0 means error.
 pub type EtagereStatus = u32;
@@ -17,7 +17,7 @@ pub struct EtagereRectangle {
     pub min_x: i32,
     pub min_y: i32,
     pub max_x: i32,
-    pub max_y: i32,    
+    pub max_y: i32,
 }
 
 
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn etagere_atlas_allocator_allocate(allocator: &mut AtlasA
             return 1;
         }
         None => {
-            allocation.id = std::u32::MAX;
+            allocation.id = core::u32::MAX;
             allocation.rectangle.min_x = 0;
             allocation.rectangle.min_y = 0;
             allocation.rectangle.max_x = 0;
@@ -108,19 +108,20 @@ pub unsafe extern "C" fn etagere_atlas_allocator_get(allocator: &AtlasAllocator,
     };
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn etagere_atlas_allocator_dump_svg(allocator: &AtlasAllocator, file_name: *const c_char) -> EtagereStatus {
-    let cstr = std::ffi::CStr::from_ptr(file_name);
-    let rstr = String::from_utf8_lossy(cstr.to_bytes());
-    let mut file = match std::fs::File::create(rstr.as_ref()) {
-        Ok(file) => file,
-        Err(..) => {
-            return 0;
-        }
-    };
-
-    match allocator.dump_svg(&mut file) {
-        Ok(..) => 1,
-        Err(..) => 0, 
-    }
-}
+//use core::ffi::c_char;
+//#[no_mangle]
+//pub unsafe extern "C" fn etagere_atlas_allocator_dump_svg(allocator: &AtlasAllocator, file_name: *const c_char) -> EtagereStatus {
+//    let cstr = core::ffi::CStr::from_ptr(file_name);
+//    let rstr = String::from_utf8_lossy(cstr.to_bytes());
+//    let mut file = match core::fs::File::create(rstr.as_ref()) {
+//        Ok(file) => file,
+//        Err(..) => {
+//            return 0;
+//        }
+//    };
+//
+//    match allocator.dump_svg(&mut file) {
+//        Ok(..) => 1,
+//        Err(..) => 0,
+//    }
+//}

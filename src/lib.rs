@@ -1,9 +1,12 @@
+#![allow(mismatched_lifetime_syntaxes)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
 //! Dynamic texture atlas allocation using the shelf packing algorithm.
 //!
 //! ## Texture atlas allocation
 //!
 //! The goal of a texture atlas allocator is to pack multiple rectangles into a larger one.
-//! When rendering 2D or 3D graphics on the GPU, this packing important for draw call batching. 
+//! When rendering 2D or 3D graphics on the GPU, this packing is important for draw call batching.
 //!
 //! This crate provides two implementations of the shelf packing algorithm for *dynamic*
 //! texture atlas allocation (dynamic here means supporting both allocation and deallocation).
@@ -77,6 +80,10 @@
 #[macro_use]
 pub extern crate serde;
 pub extern crate euclid;
+extern crate alloc;
+
+#[cfg(test)]
+extern crate std;
 
 mod bucketed;
 mod allocator;
@@ -164,4 +171,3 @@ impl AllocId {
         AllocId(bytes)
     }
 }
-
