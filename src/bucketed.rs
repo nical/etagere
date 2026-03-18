@@ -420,7 +420,6 @@ impl BucketedAtlasAllocator {
     /// The squashed shelves are not removed, their height is just set to zero so no item
     /// can go in, and they will be garbage-collected whenever there's no shelf above them.
     /// For simplicity, the bucket width is not modified.
-
     fn coalesce_shelves(&mut self, w: u16, h: u16) -> (usize, BucketIndex) {
         let len = self.shelves.len();
         let mut coalesce_range = None;
@@ -436,13 +435,13 @@ impl BucketedAtlasAllocator {
             let shelf_x = self.shelves[shelf_index].x;
             coalesced_height = self.shelves[shelf_index].height;
             for i in 1..3 {
+                if shelf_index + i >= len {
+                    break 'outer;
+                }
+
                 if self.shelves[shelf_index + i].x != shelf_x {
                     // Can't coalesce shelves from different columns.
                     continue 'outer;
-                }
-
-                if shelf_index + i >= len {
-                    break 'outer;
                 }
 
                 if !self.shelf_is_empty(shelf_index + i) {
