@@ -1,5 +1,6 @@
-use std::num::Wrapping;
-use std::u16;
+use core::num::Wrapping;
+use core::u16;
+use alloc::vec::Vec;
 
 use crate::{AllocatorOptions, DEFAULT_OPTIONS, Allocation, AllocId, Size, Rectangle, point2, size2};
 
@@ -205,8 +206,8 @@ impl BucketedAtlasAllocator {
     /// Allocate a rectangle in the atlas.
     pub fn allocate(&mut self, mut requested_size: Size) -> Option<Allocation> {
         if requested_size.is_empty()
-            || requested_size.width > std::u16::MAX as i32
-            || requested_size.height > std::u16::MAX as i32 {
+            || requested_size.width > core::u16::MAX as i32
+            || requested_size.height > core::u16::MAX as i32 {
             return None;
         }
 
@@ -219,7 +220,7 @@ impl BucketedAtlasAllocator {
 
         let (w, h) = convert_coordinates(self.flip_xy, requested_size.width as u16, requested_size.height as u16);
 
-        let mut selected_shelf = std::usize::MAX;
+        let mut selected_shelf = core::usize::MAX;
         let mut selected_bucket = BucketIndex::INVALID;
         let mut best_waste = u16::MAX;
 
@@ -567,7 +568,7 @@ impl BucketedAtlasAllocator {
         true
     }
 
-
+    #[cfg(feature = "std")]
     /// Dump a visual representation of the atlas in SVG format.
     pub fn dump_svg(&self, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
@@ -610,6 +611,7 @@ impl BucketedAtlasAllocator {
     /// SVG document, so that it can be included in a larger document.
     ///
     /// If a rectangle is provided, translate and scale the output to fit it.
+    #[cfg(feature = "std")]
     pub fn dump_into_svg(&self, rect: Option<&Rectangle>, output: &mut dyn std::io::Write) -> std::io::Result<()> {
         use svg_fmt::*;
 
@@ -787,7 +789,7 @@ fn test_coalesce_shelves() {
         atlas.deallocate(ids[i]);
     }
 
-    //dump_svg(&atlas, &mut std::fs::File::create("tmp.svg").expect("!!"));
+    //dump_svg(&atlas, &mut core::fs::File::create("tmp.svg").expect("!!"));
 
     assert!(atlas.is_empty());
     assert_eq!(atlas.allocated_space(), 0);
@@ -892,11 +894,11 @@ fn columns() {
     let b = atlas.allocate(size2(24, 32)).unwrap();
     let c = atlas.allocate(size2(24, 32)).unwrap();
 
-    fn in_range(val: i32, range: std::ops::Range<i32>) -> bool {
+    fn in_range(val: i32, range: core::ops::Range<i32>) -> bool {
         let ok = val >= range.start && val < range.end;
 
         if !ok {
-            println!("{:?} not in {:?}", val, range);
+            std::println!("{:?} not in {:?}", val, range);
         }
 
         ok
