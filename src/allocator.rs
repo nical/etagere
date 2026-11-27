@@ -3,6 +3,11 @@ use alloc::vec::Vec;
 
 const SHELF_SPLIT_THRESHOLD: u16 = 8;
 const ITEM_SPLIT_THRESHOLD: u16 = 8;
+// An allocation can create up to two item slots (one for a new shelf and one for
+// splitting the selected item), so keep that much headroom.
+const MAX_ITEMS: usize = u16::MAX as usize - 2;
+// An allocation can create at most one shelf.
+const MAX_SHELVES: usize = u16::MAX as usize - 1;
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -71,6 +76,8 @@ struct Item {
 pub struct AtlasAllocator {
     shelves: Vec<Shelf>,
     items: Vec<Item>,
+    item_count: usize,
+    shelf_count: usize,
     alignment: Size,
     flip_xy: bool,
     size: Size,
@@ -95,6 +102,8 @@ impl AtlasAllocator {
         let mut atlas = AtlasAllocator {
             shelves: Vec::new(),
             items: Vec::new(),
+            item_count: 0,
+            shelf_count: 0,
             size: size2(width, height),
             alignment: options.alignment,
             flip_xy: options.vertical_shelves,
@@ -170,6 +179,8 @@ impl AtlasAllocator {
             prev = current;
         }
 
+        self.item_count = num_columns as usize;
+        self.shelf_count = num_columns as usize;
         self.first_shelf = ShelfIndex(0);
         self.free_items = ItemIndex::NONE;
         self.free_shelves = ShelfIndex::NONE;
@@ -187,8 +198,10 @@ impl AtlasAllocator {
     /// Allocate a rectangle in the atlas.
     pub fn allocate(&mut self, mut size: Size) -> Option<Allocation> {
         if size.is_empty()
-            || size.width > core::u16::MAX as i32
-            || size.height > core::u16::MAX as i32 {
+            || size.width > u16::MAX as i32
+            || size.height > u16::MAX as i32
+            || self.item_count >= MAX_ITEMS
+            || self.shelf_count >= MAX_SHELVES {
             return None;
         }
 
@@ -269,6 +282,7 @@ impl AtlasAllocator {
         }
 
         let shelf = self.shelves[selected_shelf.index()].clone();
+
         if shelf.is_empty {
             self.shelves[selected_shelf.index()].is_empty = false;
         }
@@ -544,11 +558,16 @@ impl AtlasAllocator {
     }
 
     fn remove_item(&mut self, idx: ItemIndex) {
+        debug_assert!(self.item_count > 0);
+        self.item_count -= 1;
         self.items[idx.index()].next = self.free_items;
         self.free_items = idx;
     }
 
     fn remove_shelf(&mut self, idx: ShelfIndex) {
+        debug_assert!(self.shelf_count > 0);
+        self.shelf_count -= 1;
+
         // Remove the shelf's item.
         self.remove_item(self.shelves[idx.index()].first_item);
 
@@ -557,6 +576,9 @@ impl AtlasAllocator {
     }
 
     fn add_item(&mut self, mut item: Item) -> ItemIndex {
+        debug_assert!(self.item_count < u16::MAX as usize);
+        self.item_count += 1;
+
         if self.free_items.is_some() {
             let idx = self.free_items;
             item.generation = self.items[idx.index()].generation.wrapping_add(1);
@@ -566,6 +588,7 @@ impl AtlasAllocator {
             return idx;
         }
 
+        debug_assert!(self.items.len() < u16::MAX as usize);
         let idx = ItemIndex(self.items.len() as u16);
         self.items.push(item);
 
@@ -573,6 +596,9 @@ impl AtlasAllocator {
     }
 
     fn add_shelf(&mut self, shelf: Shelf) -> ShelfIndex {
+        debug_assert!(self.shelf_count < u16::MAX as usize);
+        self.shelf_count += 1;
+
         if self.free_shelves.is_some() {
             let idx = self.free_shelves;
             self.free_shelves = self.shelves[idx.index()].next;
@@ -581,6 +607,7 @@ impl AtlasAllocator {
             return idx;
         }
 
+        debug_assert!(self.shelves.len() < u16::MAX as usize);
         let idx = ShelfIndex(self.shelves.len() as u16);
         self.shelves.push(shelf);
 
@@ -1264,4 +1291,33 @@ fn bad_fit() {
         atlas.deallocate(a2.id);
         atlas.deallocate(a3.id);
     }
+}
+
+#[test]
+fn max_items() {
+    use crate::{size2, AtlasAllocator};
+
+    let mut atlas = AtlasAllocator::new(size2(4096, 4096));
+
+    assert_eq!(atlas.free_space(), 4096 * 4096);
+    assert!(atlas.is_empty());
+    let full = atlas.allocate(size2(4096, 4096)).unwrap();
+    atlas.deallocate(full.id);
+    assert_eq!(atlas.free_space(), 4096 * 4096);
+    assert!(atlas.is_empty());
+
+    let mut ids = Vec::new();
+    let mut n = 0;
+    while let Some(a) = atlas.allocate(size2(1, if n % 2 == 0 { 1 } else { 20 })) {
+        ids.push(a.id);
+        n += 1;
+    }
+
+    for id in ids.into_iter().rev() {
+        atlas.deallocate(id);
+    }
+
+    assert_eq!(atlas.free_space(), 4096 * 4096);
+    assert!(atlas.is_empty());
+    assert!(atlas.allocate(size2(4096, 4096)).is_some());
 }
